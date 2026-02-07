@@ -23,12 +23,13 @@ class InstanceData:
         self.problem_description: str | None = None
         self.tra_content: str | None = None  # 压缩后的轨迹
         self.traj_content: str | None = None  # 原始轨迹
-        self.patch_content: str | None = None  # 预测结果(.pred或.patch)
+        self.solution_content: str | None = None  # 解/代码文本（来自 .pred 或 .patch 文件）
 
-        # 评估数据
+        # 评估数据（通用协议）
         self.passed: bool | None = None
-        self.final_performance: float | str | None = None
-        self.final_artifacts: str | None = None
+        self.success: bool | None = None
+        self.metric: float | str | None = None
+        self.artifacts: dict[str, Any] | None = None
 
         # 运行元数据
         self.language: str | None = None
@@ -73,7 +74,7 @@ class InstanceDataManager:
             instance_data.problem_description = self._load_problem_description(instance_path)
             instance_data.tra_content = self._load_tra_content(instance_path, instance_name)
             instance_data.traj_content = self._load_traj_content(instance_path, instance_name)
-            instance_data.patch_content = self._load_patch_content(instance_path, instance_name)
+            instance_data.solution_content = self._load_solution_content(instance_path, instance_name)
             self._load_result_metrics(instance_path, instance_name, instance_data)
 
         return instance_data
@@ -168,7 +169,7 @@ class InstanceDataManager:
             "has_problem": instance_data.problem_description is not None,
             "has_tra": instance_data.tra_content is not None,
             "has_traj": instance_data.traj_content is not None,
-            "has_patch": instance_data.patch_content is not None,
+            "has_patch": instance_data.solution_content is not None,
             "available_files": instance_data.available_files,
             "completeness_score": 0,
             "missing_data": [],
@@ -184,7 +185,7 @@ class InstanceDataManager:
             "has_problem": "problem_description",
             "has_tra": "tra_content",
             "has_traj": "traj_content",
-            "has_patch": "patch_content",
+            "has_patch": "solution_content",
         }
 
         for key, data_name in data_mapping.items():
@@ -223,8 +224,8 @@ class InstanceDataManager:
         traj_file = instance_path / f"{instance_name}.traj"
         return self._read_file_safe(traj_file)
 
-    def _load_patch_content(self, instance_path: Path, instance_name: str) -> str | None:
-        """加载预测结果内容 - 优先.patch，备选.pred"""
+    def _load_solution_content(self, instance_path: Path, instance_name: str) -> str | None:
+        """加载解/代码内容 - 优先.patch，备选.pred"""
         # 优先级：.patch > .pred
         for ext in [".patch", ".pred"]:
             file_path = instance_path / f"{instance_name}{ext}"
@@ -246,15 +247,18 @@ class InstanceDataManager:
         except Exception:
             return
 
-        perf = data.get("final_performance")
-        artifacts = data.get("final_artifacts")
+        metric = data.get("metric")
+        artifacts = data.get("artifacts") if isinstance(data.get("artifacts"), dict) else {}
+        success = data.get("success")
+        error = data.get("error")
 
-        instance_data.final_performance = perf
-        instance_data.final_artifacts = artifacts if isinstance(artifacts, str) else None
+        instance_data.metric = metric
+        instance_data.artifacts = artifacts
+        instance_data.success = bool(success) if success is not None else (error is None)
 
-        lang = data.get("language")
-        opt = data.get("optimization_target")
-        unit = data.get("performance_unit")
+        lang = artifacts.get("language")
+        opt = artifacts.get("optimization_target")
+        unit = artifacts.get("performance_unit")
         instance_data.language = lang if isinstance(lang, str) else None
         instance_data.optimization_target = opt if isinstance(opt, str) else None
         instance_data.performance_unit = unit if isinstance(unit, str) else None
@@ -262,11 +266,11 @@ class InstanceDataManager:
         try:
             import math
 
-            if isinstance(perf, (int, float)):
-                instance_data.passed = math.isfinite(float(perf))
-            elif isinstance(perf, str):
-                s = perf.strip().lower()
-                instance_data.passed = s not in ("inf", "+inf", "infinity", "+infinity")
+            if isinstance(metric, (int, float)):
+                instance_data.passed = math.isfinite(float(metric)) and error is None
+            elif isinstance(metric, str):
+                s = metric.strip().lower()
+                instance_data.passed = s not in ("inf", "+inf", "infinity", "+infinity") and error is None
             else:
                 instance_data.passed = False
         except Exception:

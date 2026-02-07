@@ -10,8 +10,6 @@ import copy
 import json
 import math
 import os
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,7 +28,6 @@ class TrajPoolManager:
         self,
         pool_path: str,
         llm_client=None,
-        num_workers: int | None = None,
         memory_manager: Optional["LocalMemoryManager"] = None,  # noqa: F821
         prompt_config: dict[str, Any] | None = None,
     ):
@@ -40,12 +37,11 @@ class TrajPoolManager:
         Args:
             pool_path: traj.pool 文件路径。
             llm_client: LLM 客户端实例，用于轨迹总结。
-            num_workers: 并行生成总结的并发数。
+            memory_manager: 本地记忆管理器。
+            prompt_config: 提示词配置字典。
         """
         self.pool_path = Path(pool_path)
         self.llm_client = llm_client
-        # 并发控制（来自SE配置）；为空则使用默认策略
-        self.num_workers = num_workers
         self.logger = get_se_logger("traj_pool", emoji="🏊")
         self.memory_manager = memory_manager
         self.prompt_config = prompt_config or {}
@@ -247,9 +243,10 @@ class TrajPoolManager:
             "problem": traj_info.get("problem_description") or traj_info.get("problem_statement"),
             "label": label,
             "summary": traj_info.get("summary") or {},
-            "performance": traj_info.get("performance"),
+            "solution": traj_info.get("solution") or "",
+            "metric": traj_info.get("metric"),
+            "artifacts": traj_info.get("artifacts") or {},
             "source_dir": traj_info.get("source_dir"),
-            "code": traj_info.get("patch_content") or traj_info.get("content"),
             "trajectory_raw": trajectory_raw,
             "iteration": traj_info.get("iteration"),
         }
@@ -343,7 +340,7 @@ class TrajPoolManager:
     def summarize_trajectory(
         self,
         trajectory_content: str,
-        patch_content: str,
+        solution_content: str,
         iteration: int,
         label: str,
         problem_description: str | None = None,
@@ -355,7 +352,7 @@ class TrajPoolManager:
 
         Args:
             trajectory_content: .tra 文件内容。
-            patch_content: .patch/.pred 文件内容或 "FAILED_NO_PATCH"。
+            solution_content: 解/代码文本，或 "FAILED_NO_SOLUTION"。
             iteration: 迭代号 (用于上下文)。
             label: 轨迹标签 (用于日志)。
             problem_description: 问题描述。
@@ -369,14 +366,14 @@ class TrajPoolManager:
         summarizer = TrajSummarizer()
 
         # 检查是否为失败实例
-        is_failed = patch_content == "FAILED_NO_PATCH"
+        is_failed = not solution_content or solution_content == "FAILED_NO_SOLUTION"
 
         try:
             if self.llm_client:
                 traj_summarizer = TrajectorySummarizer(self.llm_client, prompt_config=self.prompt_config)
                 summary = traj_summarizer.summarize_trajectory(
                     trajectory_content,
-                    patch_content,
+                    solution_content,
                     iteration,
                     problem_description=problem_description,
                     best_solution_text=best_solution_text,
@@ -385,12 +382,12 @@ class TrajPoolManager:
                 # 为失败实例添加特殊标记
                 if is_failed:
                     summary["strategy_status"] = "FAILED"
-                    summary["failure_reason"] = "No patch/prediction generated"
+                    summary["failure_reason"] = "No solution generated"
                 self.logger.debug(f"LLM 轨迹总结 (标签 '{label}'): {summary.get('approach_summary', 'N/A')}")
                 return summary
             else:
                 self.logger.info(f"未配置 LLM 客户端，使用备用总结 (标签 '{label}')")
-                summary = summarizer.create_fallback_summary(trajectory_content, patch_content, iteration)
+                summary = summarizer.create_fallback_summary(trajectory_content, solution_content or "", iteration)
                 self.logger.debug(f"备用轨迹总结 (标签 '{label}'): {summary.get('approach_summary', 'N/A')}")
                 return summary
         except Exception as e:
@@ -436,14 +433,19 @@ class TrajPoolManager:
         if best_label and str(best_label) in inst_entry:
             best_entry = inst_entry[str(best_label)]
 
+        # 从 artifacts 或顶层字段获取语言和优化目标
+        artifacts = res.get("artifacts") or {}
+        language = artifacts.get("language") or res.get("language")
+        optimization_target = artifacts.get("optimization_target") or res.get("optimization_target")
+
         return {
             "instance_name": str(instance_name),
             "current_entry": res,
             "source_entries": source_entries,
             "best_entry": best_entry,
             "problem_description": inst_entry.get("problem"),
-            "language": res.get("language"),
-            "optimization_target": res.get("optimization_target"),
+            "language": language,
+            "optimization_target": optimization_target,
         }
 
     def _process_single_trajectory_summary(self, item: dict[str, Any]) -> dict[str, Any] | None:
@@ -486,21 +488,20 @@ class TrajPoolManager:
                         lab: {
                             "label": lab,
                             "iteration": item.get("iteration"),
-                            "code": item.get("patch_content") or "",
-                            "perf_metrics": item.get("perf_metrics"),
-                            "performance": item.get("performance"),
+                            "solution": item.get("solution") or "",
+                            "metric": item.get("metric"),
                             "operator_name": item.get("operator_name"),
                         }
                     }
                 )
             except Exception:
-                target_solution_text = str(item.get("patch_content") or "")
+                target_solution_text = str(item.get("solution") or "")
 
             summary = None
             if do_summary:
                 summary = self.summarize_trajectory(
                     trajectory_content=item["trajectory_content"],
-                    patch_content=item["patch_content"],
+                    solution_content=item.get("solution") or "",
                     iteration=item["iteration"],
                     label=item["label"],
                     problem_description=item.get("problem_description"),
@@ -532,15 +533,15 @@ class TrajPoolManager:
                 "label": item["label"],
                 "instance_name": item["instance_name"],
                 "iteration": item["iteration"],
-                "performance": item.get("performance"),
+                "solution": item.get("solution") or "",
+                "metric": item.get("metric"),
+                "artifacts": item.get("artifacts") or {},
                 "source_dir": item.get("source_dir"),
                 "summary": summary,
                 "problem_description": item.get("problem_description"),
-                "code": item["patch_content"],
                 "trajectory_raw": trajectory_raw_obj,
                 "source_entry_labels": item.get("source_entry_labels"),
                 "operator_name": item.get("operator_name"),
-                "perf_metrics": item.get("perf_metrics"),
                 "language": lang,
                 "optimization_target": target,
                 "meta": {"summary_enabled": bool(do_summary)},
@@ -550,10 +551,10 @@ class TrajPoolManager:
             return None
 
     def summarize_and_add_trajectories(
-        self, trajectories_to_process: list[dict[str, Any]], num_workers: int | None = None
+        self, trajectories_to_process: list[dict[str, Any]]
     ) -> int:
         """
-        并行生成多条轨迹的总结，并一次性将它们作为新条目添加到轨迹池中。
+        串行生成轨迹的总结，并将它们作为新条目添加到轨迹池中。
 
         Args:
             trajectories_to_process: 待处理轨迹信息的列表。每个元素是一个字典，包含:
@@ -561,17 +562,13 @@ class TrajPoolManager:
                 - "instance_name": str
                 - "problem_description": str
                 - "trajectory_content": str  (.tra 内容)
-                - "patch_content": str       (.pred/.patch 文本)
+                - "solution": str            (解/代码文本)
+                - "metric": float | str | None  (标量指标，越低越好)
+                - "artifacts": dict | None   (任务特定上下文)
                 - "iteration": int
-                - "perf_metrics": dict | None  包含:
-                    - "passed": bool | None
-                    - "performance": float | str | None
-                    - "artifacts": str | None   (已格式化文本)
-                - "performance": float | str | None  (兼容旧字段，若与 perf_metrics 同时存在，优先 perf_metrics.performance)
                 - "source_dir": str
                 - "operator_name": str | None
                 - "source_entry_labels": list[str] | None
-            num_workers: 并发数。
 
         Returns:
             成功处理并添加的轨迹数量。
@@ -580,26 +577,18 @@ class TrajPoolManager:
             return 0
 
         try:
-            cfg_workers = num_workers if num_workers is not None else self.num_workers
-            max_workers = (
-                max(1, int(cfg_workers)) if cfg_workers is not None else max(1, min(8, (os.cpu_count() or 4) * 2))
-            )
-            self.logger.debug(f"并行轨迹总结并发数: {max_workers}")
-
-            newly_completed_trajectories = defaultdict(list)
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_label = {
-                    executor.submit(self._process_single_trajectory_summary, item): item["label"]
-                    for item in trajectories_to_process
-                }
-                for future in as_completed(future_to_label):
-                    label = future_to_label[future]
-                    try:
-                        if result := future.result():
-                            if inst_name := result.get("instance_name"):
-                                newly_completed_trajectories[inst_name].append(result)
-                    except Exception as e:
-                        self.logger.error(f"获取总结结果失败 (标签 '{label}'): {e}")
+            # 串行处理每条轨迹
+            newly_completed_trajectories: dict[str, list[dict[str, Any]]] = {}
+            for item in trajectories_to_process:
+                label = item.get("label", "unknown")
+                try:
+                    result = self._process_single_trajectory_summary(item)
+                    if result:
+                        inst_name = result.get("instance_name")
+                        if inst_name:
+                            newly_completed_trajectories.setdefault(inst_name, []).append(result)
+                except Exception as e:
+                    self.logger.error(f"轨迹总结失败 (标签 '{label}'): {e}")
 
             if not newly_completed_trajectories:
                 self.logger.warning("没有成功生成任何轨迹总结。")
@@ -652,11 +641,11 @@ class TrajPoolManager:
             if written_count > 0:
                 self.save_pool(pool_data)
 
-            self.logger.info(f"成功并行生成并向轨迹池添加了 {written_count} 条实例-迭代条目。")
+            self.logger.info(f"成功生成并向轨迹池添加了 {written_count} 条实例-迭代条目。")
             return written_count
 
         except Exception as e:
-            self.logger.error(f"并行生成与批量写入轨迹总结失败: {e}")
+            self.logger.error(f"生成与写入轨迹总结失败: {e}")
             raise
 
     def _select_best_label(self, inst_entry: dict[str, Any]) -> str | None:
@@ -664,12 +653,7 @@ class TrajPoolManager:
         for k, v in inst_entry.items():
             if k == "problem" or not isinstance(v, dict):
                 continue
-            perf_val = None
-            pm = v.get("perf_metrics")
-            if isinstance(pm, dict) and pm.get("performance") is not None:
-                perf_val = pm.get("performance")
-            if perf_val is None:
-                perf_val = v.get("performance")
+            perf_val = v.get("metric")
 
             # parse performance to float
             try:
@@ -809,9 +793,7 @@ class TrajPoolManager:
                     if level == 0 and include_keys is not None and str(k) not in include_keys:
                         continue
                     key_line = f"{indent_str(level)}{k}:"
-                    code_key = str(k) in {
-                        "code",
-                    }
+                    code_key = str(k) == "solution"
                     if code_key and isinstance(v, str):
                         lines.append(key_line)
                         lines.append(f"```\n{v}\n```")
@@ -885,16 +867,10 @@ class TrajPoolManager:
                     sl_str = str(sl)
                     src = self.get_trajectory(sl_str, instance_name=str(inst_name))
                     if isinstance(src, dict):
-                        pm_prev = src.get("perf_metrics")
-                        perf_prev = self._parse_perf(
-                            (pm_prev or {}).get("performance") if isinstance(pm_prev, dict) else src.get("performance")
-                        )
+                        perf_prev = self._parse_perf(src.get("metric"))
                         if math.isfinite(perf_prev):
                             sources.append((sl_str, src, perf_prev))
-                pm_curr = val.get("perf_metrics")
-                perf_curr = self._parse_perf(
-                    (pm_curr or {}).get("performance") if isinstance(pm_curr, dict) else val.get("performance")
-                )
+                perf_curr = self._parse_perf(val.get("metric"))
                 if not math.isfinite(perf_curr) or not sources:
                     continue
                 best_src = min(sources, key=lambda t: t[2])

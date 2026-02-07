@@ -26,6 +26,122 @@ from perf_config import StepConfig
 
 
 @dataclass
+class TrajectoryItem:
+    """轨迹池中单条轨迹的结构化表示。
+
+    Attributes:
+        label: 轨迹标签（如 "sol1", "iter3"）。
+        metric: 标量性能指标（越低越好）。
+        solution: 解/代码文本。
+        summary: 轨迹摘要（可为 dict 或 str）。
+        extras: 其他未列举的字段（保留原始 JSON 中的所有额外字段）。
+    """
+
+    label: str = ""
+    metric: float | None = None
+    solution: str = ""
+    summary: Any = None
+    extras: dict[str, Any] = field(default_factory=dict)
+
+    @staticmethod
+    def from_dict(d: dict[str, Any]) -> "TrajectoryItem":
+        known = {"label", "metric", "solution", "summary"}
+        metric_raw = d.get("metric")
+        try:
+            metric = float(metric_raw) if metric_raw is not None else None
+        except (ValueError, TypeError):
+            metric = None
+        return TrajectoryItem(
+            label=str(d.get("label") or ""),
+            metric=metric,
+            solution=str(d.get("solution") or ""),
+            summary=d.get("summary"),
+            extras={k: v for k, v in d.items() if k not in known},
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "label": self.label,
+            "solution": self.solution,
+        }
+        if self.metric is not None:
+            out["metric"] = self.metric
+        if self.summary is not None:
+            out["summary"] = self.summary
+        out.update(self.extras)
+        return out
+
+
+@dataclass
+class InstanceTrajectories:
+    """实例在轨迹池中的所有轨迹数据（结构化）。
+
+    既提供类型安全的属性访问，也兼容 dict 风格的 get/items 操作
+    以便算子代码平滑迁移。
+
+    Attributes:
+        problem: 问题描述文本（来自轨迹池 "problem" 键）。
+        trajectories: 按标签索引的轨迹字典。
+    """
+
+    problem: str = ""
+    trajectories: dict[str, TrajectoryItem] = field(default_factory=dict)
+
+    # --- dict-compatible 接口（便于算子渐进迁移）---
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """dict 风格的 get：先检查 'problem'，然后在 trajectories 中查找。"""
+        if key == "problem":
+            return self.problem
+        traj = self.trajectories.get(key)
+        if traj is not None:
+            return traj.to_dict()
+        return default
+
+    def items(self):
+        """dict 风格的 items：返回 (key, value) 对，包括 'problem'。"""
+        yield "problem", self.problem
+        for k, v in self.trajectories.items():
+            yield k, v.to_dict()
+
+    def __getitem__(self, key: str) -> Any:
+        if key == "problem":
+            return self.problem
+        traj = self.trajectories.get(key)
+        if traj is not None:
+            return traj.to_dict()
+        raise KeyError(key)
+
+    def __contains__(self, key: str) -> bool:
+        return key == "problem" or key in self.trajectories
+
+    def __bool__(self) -> bool:
+        return bool(self.problem) or bool(self.trajectories)
+
+    @staticmethod
+    def from_dict(d: dict[str, Any] | None) -> "InstanceTrajectories":
+        """从轨迹池的原始 JSON dict 构建。"""
+        if not isinstance(d, dict):
+            return InstanceTrajectories()
+        problem = str(d.get("problem") or "")
+        trajectories: dict[str, TrajectoryItem] = {}
+        for k, v in d.items():
+            if k == "problem" or not isinstance(v, dict):
+                continue
+            trajectories[k] = TrajectoryItem.from_dict(v)
+        return InstanceTrajectories(problem=problem, trajectories=trajectories)
+
+    def to_dict(self) -> dict[str, Any]:
+        """转回原始 dict 格式。"""
+        out: dict[str, Any] = {}
+        if self.problem:
+            out["problem"] = self.problem
+        for k, traj in self.trajectories.items():
+            out[k] = traj.to_dict()
+        return out
+
+
+@dataclass
 class OperatorContext:
     """算子执行的共享上下文。
 
@@ -48,16 +164,16 @@ class OperatorResult:
     """单实例算子执行结果
 
     这是 Operator 返回给 perf_run.py 的标准化结果对象。
-    包含用于构建 PerfAgentRequest 的全部信息。
+    包含用于构建 AgentRequest 的全部信息。
 
     Attributes:
         additional_requirements: 额外的 prompt 要求（来自算子分析）
-        initial_code: 可选的初始代码覆盖
+        initial_solution: 可选的初始解覆盖
         source_labels: 使用的源轨迹标签列表
     """
 
     additional_requirements: str | None = None
-    initial_code: str | None = None
+    initial_solution: str | None = None
     source_labels: list[str] = field(default_factory=list)
 
 
@@ -173,68 +289,15 @@ class BaseOperator(abc.ABC):
                 prompt, system_prompt = build_prompt_fn(attempt)
                 pcfg = self.context.prompt_config or {}
                 common = pcfg.get("base_operator", {}) if isinstance(pcfg.get("base_operator"), dict) else {}
-                enforce_tail = common.get(
-                    "enforce_tail",
-                    pcfg.get(
-                        "operator_enforce_tail",
-                        "\n\nSTRICT FORMAT: Wrap the entire solution inside a fenced code block starting with ```py and ending with ```.",
-                    ),
-                )
-                import_blocks = common.get(
-                    "imports_block",
-                    pcfg.get(
-                        "operator_imports_block",
-                        """\n\nAllowed Imports Scope: You may only import libraries within the scope defined below.
-```python
-import re
-from re import match, search, sub, split, findall, finditer
-import sys
-from sys import maxsize, stdin
-import json
-from json import loads
-import math
-from math import floor, ceil, factorial, sqrt, isqrt, inf, log2, log10, sin, cos, tan, pi, e, comb, perm, gcd, lcm
-import copy
-import pickle
-import heapq
-from heapq import heappush, heappop, heapify, heappushpop, nlargest, nsmallest
-import bisect
-from bisect import bisect_left, bisect_right
-import string
-from string import ascii_letters, ascii_lowercase, ascii_uppercase, digits, whitespace, punctuation, hexdigits
-import random
-import operator
-import itertools
-from itertools import combinations, permutations, product, groupby, chain, accumulate, zip_longest
-import functools
-from functools import lru_cache, cache, reduce
-import collections
-from collections import OrderedDict, defaultdict, Counter, deque
-from typing import Set, Dict, List, Optional, Tuple
-import sortedcontainers # pip install sortedcontainers
-from sortedcontainers import SortedList, SortedDict, SortedSet
-```""",
-                    ),
-                )
-                optimization_target = common.get(
-                    "optimization_target",
-                    pcfg.get(
-                        "operator_optimization_target",
-                        """
-CORE TASK
-Your task is to iteratively improve a given program in python for the problem described below, aiming to increase its **runtime**.
-
-GUIDING PRINCEPLES
-Your core philosophy is **CORRECTNESS FIRST, THEN PERFORMANCE**.
-1.  **Correctness Priority**: Your primary goal is to produce correct outputs for all required cases. Ensure any changes maintain or improve correctness *before* optimizing for performance.
-2.  **Performance Focus**: Improve performance only *after* correctness is assured. Prefer algorithmic improvements over micro-optimizations.
-3.  **Context Utilization**: You MUST leverage all provided information (evolution history in the chat, current metrics, artifacts etc.) to make informed optimization decisions.
-4.  **Substantial Impact**: Focus on meaningful improvements that significantly impact the fitness score.
-5.  **Code Quality**: Keep the code readable, robust, and maintainable. Avoid unnecessary refactors.
-6.  **Diversity**: Explore alternative algorithms, data structures, or techniques (e.g., built-in operators, packages) when appropriate.
-                        """,
-                    ),
-                )
+                enforce_tail = common.get("enforce_tail")
+                if enforce_tail is None:
+                    enforce_tail = pcfg.get("operator_enforce_tail")
+                import_blocks = common.get("imports_block")
+                if import_blocks is None:
+                    import_blocks = pcfg.get("operator_imports_block")
+                optimization_target = common.get("optimization_target")
+                if optimization_target is None:
+                    optimization_target = pcfg.get("operator_optimization_target")
                 system_prompt_use = system_prompt or ""
                 if isinstance(enforce_tail, str) and enforce_tail.strip():
                     system_prompt_use += enforce_tail
@@ -293,7 +356,7 @@ Your core philosophy is **CORRECTNESS FIRST, THEN PERFORMANCE**.
                 lab2 = str(subval.get("label")) if isinstance(subval.get("label"), str) else None
                 if lab not in allowed_labels and (lab2 is None or lab2 not in allowed_labels):
                     continue
-            perf = subval.get("performance")
+            perf = subval.get("metric")
             try:
                 perf_val = float(perf) if perf is not None else 1.0
             except Exception:
@@ -456,7 +519,9 @@ Your core philosophy is **CORRECTNESS FIRST, THEN PERFORMANCE**.
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories | dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例，返回结构化结果。
 
@@ -465,10 +530,11 @@ Your core philosophy is **CORRECTNESS FIRST, THEN PERFORMANCE**.
         Args:
             step_config: 当前步骤的配置（StepConfig 对象）。
             instance_name: 实例名称。
-            instance_entry: 该实例在轨迹池中的数据字典。
+            instance_entry: 该实例在轨迹池中的数据（InstanceTrajectories 或兼容 dict）。
+            problem_description: 问题描述文本（由调用方显式传入）。
 
         Returns:
-            OperatorResult 对象，包含 additional_requirements、initial_code 等。
+            OperatorResult 对象，包含 additional_requirements、initial_solution 等。
         """
         ...
 

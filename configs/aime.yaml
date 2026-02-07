@@ -1,0 +1,71 @@
+
+# SE Configuration for AIME (Mathematical Reasoning)
+# Task: Solve AIME competition math problems
+
+# 任务类型
+task_type: aime
+
+model:
+  name:
+  api_base:
+  api_key:
+  max_output_tokens: 30000
+  temperature: 0.7
+
+# 算子模型配置
+operator_models:
+  name:
+  api_base:
+  api_key:
+  max_input_tokens: 30000
+  max_output_tokens: 30000
+  temperature: 0.7
+
+operator_selection_mode: weighted
+
+local_memory:
+  enabled: true
+  format_mode: short
+
+# 实例配置
+instances:
+  instances_dir: instances/
+
+output_dir: "trajectories_perf/aime_{timestamp}"
+num_workers: 10
+
+prompt_config:
+  summarizer:
+    enable_summary: true
+    optimization_target: "accuracy"
+    # system_prompt / user_prompt_template 可在此覆盖；
+    # 留空则使用 TrajSummarizer 内置的通用默认值。
+
+max_iterations: 1
+
+# 基础配置引用
+base_config: "configs/perf_configs/config_aime.yaml"
+
+# 策略编排
+strategy:
+  iterations:
+    # 初始化：生成 K=3 个初始解（数学推理通常不需要太多初始解）
+    - operator: "plan"
+      num: 3
+      trajectory_labels: ["sol1", "sol2", "sol3"]
+
+    # 进化：通过 reflection_refine 改进推理过程
+    - operator: "reflection_refine"
+      trajectory_label: "sol4"
+
+    - operator: "crossover"
+      trajectory_label: "sol5"
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol6"
+
+    - operator: "crossover"
+      trajectory_label: "sol7"
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol8"

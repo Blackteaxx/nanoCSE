@@ -41,20 +41,18 @@ def retrieve_global_memory(
     problem_description: str,
     additional_requirements: str | None,
     local_memory_text: str | None,
-    default_lang: str = "python3",
-    default_target: str = "runtime",
 ) -> str | None:
     """纯内存函数：为单实例检索 Global Memory，返回文本或 None。
 
     不写入任何文件，不修改任何外部状态。
+    语言和优化目标不再由 SE 层提供，Global Memory 应从 problem_description
+    和 additional_requirements 推断上下文。
     """
     if not global_memory:
         return None
 
     try:
         context = GlobalMemoryContext(
-            language=default_lang,
-            optimization_target=default_target,
             problem_description=problem_description,
             additional_requirements=additional_requirements or "",
             local_memory=local_memory_text or "",
@@ -97,8 +95,13 @@ def build_perf_agent_config(
 
 def build_operator_context(se_cfg: SEPerfRunSEConfig, step: StepConfig) -> OperatorContext:
     """从 SE 配置和步骤配置构建 OperatorContext。"""
+    # prompt_config: 步骤级覆盖 > SE 全局配置；OperatorContext 仍使用 dict 以兼容算子
+    if step.prompt_config is not None:
+        pc = step.prompt_config.to_dict()
+    else:
+        pc = se_cfg.prompt_config.to_dict()
     return OperatorContext(
         model_config=se_cfg.model.to_dict(),
-        prompt_config=step.prompt_config if step.prompt_config is not None else se_cfg.prompt_config,
+        prompt_config=pc,
         selection_mode=step.selection_mode or "weighted",
     )

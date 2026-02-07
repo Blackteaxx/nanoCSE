@@ -35,13 +35,12 @@ class TrajExtractor:
 
             # 仅选择常用的字段，避免traj.pool体积膨胀
             keys = [
-                "performance_before",
-                "performance_after",
-                "improvement",
                 "success",
-                "final_performance",
+                "metric",
                 "instance_id",
                 "trajectory_file",
+                "total_iterations",
+                "error",
             ]
             metrics: dict[str, Any] = {}
             for k in keys:
@@ -70,40 +69,40 @@ class TrajExtractor:
             include_metrics: 是否附带性能指标（来自result.json）
 
         Returns:
-            List[Tuple[instance_name, problem_description, tra_content, patch_content]]
-            如果 include_metrics=True，则额外在元组末尾附加 perf_metrics 字典
+            List[Tuple[instance_name, problem_description, tra_content, solution_content]]
+            如果 include_metrics=True，则额外在元组末尾附加 metrics 字典（metric/artifacts 等）
 
         Note:
-            返回格式保持向后兼容，实际推荐使用extract_instances_structured()
+            推荐使用 extract_instances_structured() 获取完整的 InstanceData 对象。
         """
         instances = self.instance_manager.get_iteration_instances(iteration_dir)
         results = []
 
         for instance in instances:
             if instance.tra_content:
-                # 如果有.tra文件，就包含这个实例（即使没有.patch文件）
-                patch_content = instance.patch_content or "FAILED_NO_PATCH"
+                solution = instance.solution_content or "FAILED_NO_SOLUTION"
                 if include_metrics:
-                    perf_metrics = {
+                    metrics = {
                         "passed": instance.passed,
-                        "performance": instance.final_performance,
+                        "success": instance.success,
+                        "metric": instance.metric,
                         "performance_unit": instance.performance_unit,
                         "optimization_target": instance.optimization_target,
                         "language": instance.language,
-                        "artifacts": instance.final_artifacts,
+                        "artifacts": instance.artifacts,
                     }
                     results.append(
                         (
                             instance.instance_name,
                             instance.problem_description,
                             instance.tra_content,
-                            patch_content,
-                            perf_metrics,
+                            solution,
+                            metrics,
                         )
                     )
                 else:
                     results.append(
-                        (instance.instance_name, instance.problem_description, instance.tra_content, patch_content)
+                        (instance.instance_name, instance.problem_description, instance.tra_content, solution)
                     )
             else:
                 # 没有.tra文件的实例才跳过

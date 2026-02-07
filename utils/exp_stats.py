@@ -241,21 +241,21 @@ def analyze_traj_pool(task_dir: Path) -> BestIterInfo | None:
                 continue
 
             iteration = value.get("iteration")
-            performance = value.get("performance")
+            metric = value.get("metric")
 
-            if iteration is None or performance is None:
+            if iteration is None or metric is None:
                 continue
 
             try:
                 iter_num = int(iteration)
                 # 处理 "Infinity" 字符串和数字
-                if isinstance(performance, str):
-                    if performance.lower() in ("infinity", "inf"):
+                if isinstance(metric, str):
+                    if metric.lower() in ("infinity", "inf"):
                         perf_val = float("inf")
                     else:
-                        perf_val = float(performance)
+                        perf_val = float(metric)
                 else:
-                    perf_val = float(performance)
+                    perf_val = float(metric)
 
                 performance_history.append((iter_num, perf_val))
             except (ValueError, TypeError):

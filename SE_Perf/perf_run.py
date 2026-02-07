@@ -3,8 +3,8 @@
 PerfAgent 单实例集成执行脚本
 
 功能：
-    在 SE 框架中驱动 PerfAgent 对 **单个实例** 进行多次迭代的性能优化。
-    所有 SE_Perf 与 PerfAgent 之间的信息传递通过 PerfAgentRequest / PerfAgentResult 完成，
+    在 SE 框架中驱动 PerfAgent 对单个实例进行多次迭代的性能优化。
+    所有 SE_Perf 与 PerfAgent 之间的信息传递通过 AgentRequest / AgentResult 完成，
     不再使用文件系统作为中间通道。
 """
 
@@ -28,8 +28,7 @@ from core.utils.se_logger import get_se_logger, setup_se_logging
 from core.utils.traj_pool_manager import TrajPoolManager
 from perf_config import LocalMemoryConfig, SEPerfRunSEConfig
 
-from perfagent.protocols import PerfAgentRequest, PerfAgentResult
-from perfagent.run import load_instance_data
+from perfagent.task_registry import create_task_runner
 
 # 从拆分模块导入功能函数
 from iteration_executor import execute_iteration
@@ -57,14 +56,24 @@ def main():
             se_raw = yaml.safe_load(f) or {}
         se_cfg = SEPerfRunSEConfig.from_dict(se_raw)
 
-        # 2. 加载单实例
+        # 2. 加载任务元数据（不加载完整实例）
         instance_path = Path(args.instance)
         if not instance_path.exists():
             print(f"实例文件不存在: {instance_path}")
             sys.exit(1)
 
-        instance = load_instance_data(instance_path)
-        instance_name = instance.task_name or instance.id
+            # 创建任务 runner
+        task_type = se_cfg.task_type or "effibench"
+        try:
+            task_runner = create_task_runner(task_type)
+        except Exception as e:
+            print(f"创建 TaskRunner 失败: task_type={task_type}, error={e}")
+            sys.exit(1)
+            
+            # 读取任务元数据
+        metadata = task_runner.load_metadata(instance_path)
+        instance_name = metadata.instance_id or instance_path.stem
+        problem_description = metadata.problem_description or ""
         print(f"  实例: {instance_name}")
 
         # 3. 准备输出环境
@@ -131,9 +140,8 @@ def main():
         traj_pool_manager = TrajPoolManager(
             traj_pool_path,
             llm_client,
-            num_workers=se_cfg.num_workers,
             memory_manager=local_memory,
-            prompt_config=se_cfg.prompt_config,
+            prompt_config=se_cfg.prompt_config.to_dict(),
         )
         traj_pool_manager.initialize_pool()
 
@@ -147,19 +155,6 @@ def main():
             except Exception as e:
                 logger.warning(f"GlobalMemoryManager 初始化失败: {e}")
 
-        # 读取 base_config 中的默认语言和优化目标（用于 global memory 检索）
-        default_lang = "python3"
-        default_target = "runtime"
-        base_config_path = se_cfg.base_config
-        if base_config_path:
-            try:
-                with open(base_config_path, encoding="utf-8") as f:
-                    bc = yaml.safe_load(f) or {}
-                    default_lang = bc.get("language_cfg", {}).get("language", default_lang)
-                    default_target = bc.get("optimization", {}).get("target", default_target)
-            except Exception:
-                pass
-
         # 5. 执行迭代策略
         iterations = se_cfg.strategy.iterations
         logger.info(f"计划执行 {len(iterations)} 个迭代步骤")
@@ -169,18 +164,18 @@ def main():
         for step in iterations:
             next_iteration_idx = execute_iteration(
                 step=step,
-                instance=instance,
-                instance_name=instance_name,
+                task_data_path=instance_path,
+                instance_id=instance_name,
+                problem_description=problem_description,
                 se_cfg=se_cfg,
                 traj_pool_manager=traj_pool_manager,
                 local_memory=local_memory,
                 global_memory=global_memory,
-                default_lang=default_lang,
-                default_target=default_target,
                 output_dir=output_dir,
                 iteration_idx=next_iteration_idx,
                 mode=args.mode,
                 logger=logger,
+                task_runner=task_runner,
             )
 
         # Update global memory

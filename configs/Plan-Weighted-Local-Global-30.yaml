@@ -2,6 +2,9 @@
 # SE Configuration for Multi-round Iteration Strategy
 # Based on deepseek-v3.1-scheme4-local-refine.yaml
 
+# 任务类型：effibench | livecodebench | aime
+task_type: effibench
+
 model:
   name: 
   api_base: 

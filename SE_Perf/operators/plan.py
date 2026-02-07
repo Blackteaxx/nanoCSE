@@ -35,6 +35,8 @@ class PlanOperator(TemplateOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> list[OperatorResult]:
         """为单实例生成 K 个 plan，返回 OperatorResult 列表。
 
@@ -52,12 +54,8 @@ class PlanOperator(TemplateOperator):
         except Exception:
             num = 1
 
-        # 获取问题描述
-        problem_text = ""
-        if isinstance(instance_entry, dict):
-            prob = instance_entry.get("problem")
-            if isinstance(prob, str) and prob.strip():
-                problem_text = prob.strip()
+        # 使用显式传入的 problem_description
+        problem_text = problem_description.strip() if problem_description else ""
 
         # 生成策略
         if problem_text and llm_enabled:

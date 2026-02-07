@@ -30,10 +30,10 @@ def op():
 def entry():
     return {
         "problem": "p",
-        "A": {"label": "A", "performance": 1.0},
-        "B": {"label": "B", "performance": 0.5},
-        "C": {"label": "C", "performance": 10.0},
-        "INF": {"label": "INF", "performance": float("inf")},
+        "A": {"label": "A", "metric": 1.0},
+        "B": {"label": "B", "metric": 0.5},
+        "C": {"label": "C", "metric": 10.0},
+        "INF": {"label": "INF", "metric": float("inf")},
     }
 
 

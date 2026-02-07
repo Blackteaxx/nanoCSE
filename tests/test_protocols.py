@@ -4,14 +4,13 @@
 
 验证内容：
 1. protocols.py 文件的语法正确性和结构
-2. PerfAgentResult / PerfAgentRequest 的实例化、序列化、apply_overrides
+2. AgentResult / AgentRequest 的实例化、序列化
 3. perf_run.py 的单实例接口
 4. Operator 的 run_for_instance 接口
 5. json_utils 公共模块
 """
 
 import ast
-import math
 import sys
 from pathlib import Path
 
@@ -40,7 +39,7 @@ def test_protocols_syntax():
         raise AssertionError(f"protocols.py 语法错误: {e}")
 
     class_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-    expected_classes = ["PerfAgentRequest", "PerfAgentResult"]
+    expected_classes = ["AgentRequest", "AgentResult"]
     for cls_name in expected_classes:
         assert cls_name in class_names, f"缺少类定义: {cls_name}"
 
@@ -54,84 +53,74 @@ def test_protocols_structure():
     tree = ast.parse(code)
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "PerfAgentResult":
+        if isinstance(node, ast.ClassDef) and node.name == "AgentResult":
             methods = [n.name for n in node.body if isinstance(n, ast.FunctionDef)]
-            assert "to_dict" in methods, "PerfAgentResult 缺少 to_dict 方法"
-            assert "from_dict" in methods, "PerfAgentResult 缺少 from_dict 方法"
-            assert "from_error" in methods, "PerfAgentResult 缺少 from_error 方法"
+            assert "to_dict" in methods, "AgentResult 缺少 to_dict 方法"
+            assert "from_dict" in methods, "AgentResult 缺少 from_dict 方法"
+            assert "from_error" in methods, "AgentResult 缺少 from_error 方法"
 
-        if isinstance(node, ast.ClassDef) and node.name == "PerfAgentRequest":
+        if isinstance(node, ast.ClassDef) and node.name == "AgentRequest":
             methods = [n.name for n in node.body if isinstance(n, ast.FunctionDef)]
-            assert "to_dict" in methods, "PerfAgentRequest 缺少 to_dict 方法"
-            assert "from_dict" in methods, "PerfAgentRequest 缺少 from_dict 方法"
-            assert "apply_overrides" in methods, "PerfAgentRequest 缺少 apply_overrides 方法"
+            assert "to_dict" in methods, "AgentRequest 缺少 to_dict 方法"
+            assert "from_dict" in methods, "AgentRequest 缺少 from_dict 方法"
 
     print("  protocols.py 类结构验证通过")
 
 
 # ---------------------------------------------------------------------------
-# PerfAgentResult 行为测试
+# AgentResult 行为测试
 # ---------------------------------------------------------------------------
 
 
-def test_perf_agent_result_instantiation():
-    """验证 PerfAgentResult 的实例化"""
-    from perfagent.protocols import PerfAgentResult
+def test_agent_result_instantiation():
+    """验证 AgentResult 的实例化"""
+    from perfagent.protocols import AgentResult
 
     # 正常创建
-    result = PerfAgentResult(
+    result = AgentResult(
         instance_id="test-001",
         success=True,
-        initial_code="# init",
-        optimized_code="# opt",
-        initial_performance=10.0,
-        final_performance=5.0,
-        final_metrics={"runtime": 5.0, "memory": 100.0, "integral": 500.0},
+        solution="# opt",
+        metric=5.0,
+        artifacts={"problem_description": "foo"},
     )
     assert result.instance_id == "test-001"
     assert result.success is True
-    assert result.improvement_pct == 50.0
-    assert result.passed is True
+    assert result.problem_description == "foo"
 
     # from_error
-    err_result = PerfAgentResult.from_error("fail-001", "boom")
+    err_result = AgentResult.from_error("fail-001", "boom")
     assert err_result.success is False
     assert err_result.error == "boom"
-    assert err_result.initial_performance == float("inf")
+    assert err_result.metric == float("inf")
 
-    print("  PerfAgentResult 实例化通过")
+    print("  AgentResult 实例化通过")
 
 
-def test_perf_agent_result_serialization():
-    """验证 PerfAgentResult 的序列化与反序列化"""
-    from perfagent.protocols import PerfAgentResult
+def test_agent_result_serialization():
+    """验证 AgentResult 的序列化与反序列化"""
+    from perfagent.protocols import AgentResult
 
-    original = PerfAgentResult(
+    original = AgentResult(
         instance_id="ser-001",
         success=True,
-        initial_code="a = 1",
-        optimized_code="a = 2",
-        initial_performance=8.0,
-        final_performance=3.0,
-        final_metrics={"runtime": 3.0},
-        language="python3",
-        optimization_target="runtime",
+        solution="a = 2",
+        metric=3.0,
+        artifacts={"problem_description": "bar"},
     )
 
     d = original.to_dict()
     assert isinstance(d, dict)
     assert d["instance_id"] == "ser-001"
     assert d["success"] is True
-    assert "improvement_pct" in d
-    assert "passed" in d
 
-    restored = PerfAgentResult.from_dict(d)
+    restored = AgentResult.from_dict(d)
     assert restored.instance_id == original.instance_id
     assert restored.success == original.success
-    assert restored.final_performance == original.final_performance
-    assert restored.language == original.language
+    assert restored.metric == original.metric
+    assert restored.problem_description == original.problem_description
 
-    print("  PerfAgentResult 序列化 / 反序列化通过")
+    print("  AgentResult 序列化 / 反序列化通过")
 
 
 # ---------------------------------------------------------------------------
@@ -152,15 +141,10 @@ def test_perf_run_single_instance_interface():
     assert "def create_temp_perf_config" not in code, "perf_run.py 中不应存在 create_temp_perf_config"
     assert "def _inject_global_memory" not in code, "perf_run.py 中不应存在 _inject_global_memory"
 
-    # 应有单实例核心函数
-    assert "def _run_single_perfagent" in code, "缺少 _run_single_perfagent 函数"
-    assert "def _retrieve_global_memory" in code, "缺少 _retrieve_global_memory 函数"
-    assert "def _build_perf_agent_config" in code, "缺少 _build_perf_agent_config 函数"
-    assert "def write_iteration_preds_from_result" in code, "缺少 write_iteration_preds_from_result 函数"
-
-    # 应使用 PerfAgentRequest / PerfAgentResult 协议
-    assert "PerfAgentRequest" in code, "perf_run.py 未使用 PerfAgentRequest"
-    assert "PerfAgentResult" in code, "perf_run.py 未使用 PerfAgentResult"
+    # 关键依赖：任务元数据 + 迭代执行器
+    assert "create_task_runner" in code, "perf_run.py 未使用 TaskRunner 注册机制"
+    assert "load_metadata" in code, "perf_run.py 未加载任务元数据"
+    assert "execute_iteration" in code, "perf_run.py 未调用 execute_iteration"
 
     # 应有 --instance 参数
     assert "--instance" in code, "perf_run.py 缺少 --instance CLI 参数"
@@ -257,8 +241,8 @@ def run_all_tests():
     try:
         test_protocols_syntax()
         test_protocols_structure()
-        test_perf_agent_result_instantiation()
-        test_perf_agent_result_serialization()
+        test_agent_result_instantiation()
+        test_agent_result_serialization()
         test_perf_run_single_instance_interface()
         test_operator_run_for_instance()
         test_json_utils()
@@ -271,7 +255,7 @@ def run_all_tests():
         print("  1. perfagent/protocols.py - 标准化数据接口")
         print("  2. perfagent/agent.py - run_with_request() 标准化 API")
         print("  3. perfagent/utils/json_utils.py - 公共 JSON 序列化工具")
-        print("  4. SE_Perf/perf_run.py - 单实例模式，直接构建 PerfAgentRequest")
+        print("  4. SE_Perf/perf_run.py - 单实例模式，使用 TaskRunner + AgentRequest")
         print("  5. SE_Perf/operators/*.py - run_for_instance 返回 OperatorResult")
         print("  6. 删除: YAML 文件中间通道、subprocess 调用、批量处理逻辑")
         print()

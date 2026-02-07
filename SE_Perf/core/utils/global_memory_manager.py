@@ -62,8 +62,7 @@ class GlobalMemoryManager:
                 detail = traj_pool_manager.get_trajectory(str(best_label), str(inst_name))
                 if not isinstance(detail, dict):
                     continue
-                pm = detail.get("perf_metrics")
-                val = (pm or {}).get("performance") if isinstance(pm, dict) else detail.get("performance")
+                val = detail.get("metric")
                 perf_best = self._get_perf(val)
                 best_candidates.append((str(inst_name), str(best_label), perf_best, detail))
             if not best_candidates:
@@ -73,7 +72,7 @@ class GlobalMemoryManager:
             return {
                 "instance_name": chosen[0],
                 "label": chosen[1],
-                "performance": chosen[2],
+                "metric": chosen[2],
                 "detail": chosen[3],
             }
         except Exception:
@@ -202,8 +201,8 @@ class GlobalMemoryManager:
         try:
             prev = {str(s.get("prev_label")): s.get("prev_detail") or {}}
             curr = {str(s.get("curr_label")): s.get("curr_detail") or {}}
-            ptxt = TrajPoolManager.format_entry(prev, include_keys={"code", "perf_metrics"})
-            ctxt = TrajPoolManager.format_entry(curr, include_keys={"code", "perf_metrics"})
+            ptxt = TrajPoolManager.format_entry(prev, include_keys={"solution", "metric", "artifacts"})
+            ctxt = TrajPoolManager.format_entry(curr, include_keys={"solution", "metric", "artifacts"})
             parts = [
                 f"Instance: {s.get('instance_name')}",
                 f"Previous Solution :\n{ptxt}",
@@ -230,8 +229,8 @@ class GlobalMemoryManager:
         # - One step corresponds to the **Best Solution** so far.
 
         # Each step contains:
-        # - A "Previous Solution" (code + perf_metrics)
-        # - A "Current Solution" (code + perf_metrics)
+        # - A "Previous Solution" (solution + metric)
+        # - A "Current Solution" (solution + metric)
 
         # Your goal is to build a EXPERIENCE LIBRARY that captures generalizable Success / Failure lessons that can be reused on future algorithmic optimization tasks.
 
@@ -324,8 +323,8 @@ You will be given multiple optimization steps for the SAME problem:
 - One step corresponds to the **Best Solution** so far.
 
 Each step contains:
-- A "Previous Solution" (code + perf_metrics)
-- A "Current Solution" (code + perf_metrics)
+- A "Previous Solution" (solution + metric)
+- A "Current Solution" (solution + metric)
 
 The optimization target is **integral**:  
 - Interpret this as the **integral of memory usage over runtime** for all test cases, i.e., the **area under the memory–time curve**.
@@ -394,7 +393,7 @@ Your output must strictly follow the JSON format shown below:
             detail = best_entry.get("detail") or {}
             txt = TrajPoolManager.format_entry(
                 {str(best_entry.get("label")): detail},
-                include_keys={"code", "perf_metrics"},
+                include_keys={"solution", "metric", "artifacts"},
             )
             sections.append("## Best Solution")
             if isinstance(txt, str) and txt.strip():

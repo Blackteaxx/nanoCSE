@@ -25,6 +25,8 @@ class CrossoverOperator(BaseOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的交叉操作。
 
@@ -54,7 +56,7 @@ class CrossoverOperator(BaseOperator):
         summary1 = self._format_entry({str(pick1 or "iter1"): ref1})
         summary2 = self._format_entry({str(pick2 or "iter2"): ref2})
 
-        if not instance_entry.get("problem") or not summary1 or not summary2:
+        if not problem_description or not summary1 or not summary2:
             return OperatorResult(source_labels=used)
 
         content = self._build_additional_requirements(summary1, summary2)

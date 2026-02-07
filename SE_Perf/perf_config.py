@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+
+
 from core.global_memory.utils.config import (
     ChromaBackendConfig,
     GlobalMemoryConfig,
@@ -8,6 +10,8 @@ from core.global_memory.utils.config import (
     OpenAIEmbeddingConfig,
 )
 
+# 轨迹选择模式
+SelectionMode = Literal["weighted", "random"]
 
 @dataclass
 class PerfRunCLIConfig:
@@ -94,6 +98,95 @@ class LocalMemoryConfig:
 
 
 @dataclass
+class PromptConfig:
+    """算子和轨迹摘要使用的提示词配置。
+
+    将原先的 dict[str, Any] 结构化，为各算子和摘要器提供命名子配置。
+
+    Attributes:
+        plan: Plan 算子的提示词配置（system_prompt, user_prompt_template, fallback_patterns 等）。
+        crossover: Crossover 算子的提示词配置（header, guidelines 等）。
+        reflection_refine: ReflectionRefine 算子的提示词配置。
+        alternative_strategy: AlternativeStrategy 算子的提示词配置。
+        trajectory_analyzer: TrajectoryAnalyzer 算子的提示词配置。
+        traj_pool_summary: TrajPoolSummary 算子的提示词配置。
+        base_operator: 所有算子共享的提示词配置（enforce_tail, imports_block 等）。
+        summarizer: 轨迹摘要器的提示词配置。
+        extras: 其他未列举的提示词配置。
+    """
+
+    plan: dict[str, Any] = field(default_factory=dict)
+    crossover: dict[str, Any] = field(default_factory=dict)
+    reflection_refine: dict[str, Any] = field(default_factory=dict)
+    alternative_strategy: dict[str, Any] = field(default_factory=dict)
+    trajectory_analyzer: dict[str, Any] = field(default_factory=dict)
+    traj_pool_summary: dict[str, Any] = field(default_factory=dict)
+    base_operator: dict[str, Any] = field(default_factory=dict)
+    summarizer: dict[str, Any] = field(default_factory=dict)
+    extras: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.plan:
+            out["plan"] = self.plan
+        if self.crossover:
+            out["crossover"] = self.crossover
+        if self.reflection_refine:
+            out["reflection_refine"] = self.reflection_refine
+        if self.alternative_strategy:
+            out["alternative_strategy"] = self.alternative_strategy
+        if self.trajectory_analyzer:
+            out["trajectory_analyzer"] = self.trajectory_analyzer
+        if self.traj_pool_summary:
+            out["traj_pool_summary"] = self.traj_pool_summary
+        if self.base_operator:
+            out["base_operator"] = self.base_operator
+        if self.summarizer:
+            out["summarizer"] = self.summarizer
+        out.update(self.extras)
+        return out
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """兼容 dict 风格的 get 访问（便于算子代码平滑迁移）。"""
+        if hasattr(self, key):
+            val = getattr(self, key)
+            if val:
+                return val
+        return self.extras.get(key, default)
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        """兼容 dict 风格的 setdefault（便于 trajectory_handler 等平滑迁移）。"""
+        if hasattr(self, key) and key != "extras":
+            val = getattr(self, key)
+            if val:
+                return val
+            setattr(self, key, default)
+            return default
+        return self.extras.setdefault(key, default)
+
+    @staticmethod
+    def from_dict(d: dict[str, Any]) -> "PromptConfig":
+        if not isinstance(d, dict):
+            return PromptConfig()
+        known_keys = {
+            "plan", "crossover", "reflection_refine", "alternative_strategy",
+            "trajectory_analyzer", "traj_pool_summary", "base_operator", "summarizer",
+        }
+        extras = {k: v for k, v in d.items() if k not in known_keys}
+        return PromptConfig(
+            plan=d.get("plan") or {},
+            crossover=d.get("crossover") or {},
+            reflection_refine=d.get("reflection_refine") or {},
+            alternative_strategy=d.get("alternative_strategy") or {},
+            trajectory_analyzer=d.get("trajectory_analyzer") or {},
+            traj_pool_summary=d.get("traj_pool_summary") or {},
+            base_operator=d.get("base_operator") or {},
+            summarizer=d.get("summarizer") or {},
+            extras=extras,
+        )
+
+
+@dataclass
 class StepConfig:
     """单个迭代步骤的配置。
 
@@ -107,9 +200,9 @@ class StepConfig:
     source_trajectories: list[str] = field(default_factory=list)
     source_trajectory: str | None = None
     inputs: list[dict[str, str]] = field(default_factory=list)
-    selection_mode: str | None = None
+    selection_mode: SelectionMode | None = None
     filter_strategy: dict[str, Any] | None = None
-    prompt_config: dict[str, Any] | None = None
+    prompt_config: PromptConfig | None = None
     perf_base_config: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -151,7 +244,7 @@ class StepConfig:
         if self.filter_strategy is not None:
             out["filter_strategy"] = self.filter_strategy
         if self.prompt_config is not None:
-            out["prompt_config"] = self.prompt_config
+            out["prompt_config"] = self.prompt_config.to_dict()
         if self.perf_base_config is not None:
             out["perf_base_config"] = self.perf_base_config
         out.update(self.extras)
@@ -197,7 +290,7 @@ class StepConfig:
             inputs=inputs,
             selection_mode=d.get("selection_mode"),
             filter_strategy=filter_strategy,
-            prompt_config=d.get("prompt_config"),
+            prompt_config=PromptConfig.from_dict(d["prompt_config"]) if isinstance(d.get("prompt_config"), dict) else None,
             perf_base_config=d.get("perf_base_config"),
             extras=extras,
         )
@@ -228,12 +321,12 @@ class StrategyConfig:
 class SEPerfRunSEConfig:
     base_config: str | None = None
     output_dir: str = ""
+    task_type: str = "effibench"
     model: ModelConfig = field(default_factory=ModelConfig)
     instances: InstancesConfig = field(default_factory=InstancesConfig)
     max_iterations: int = 1
-    num_workers: int = 20
     local_memory: LocalMemoryConfig | None = None
-    prompt_config: dict[str, Any] = field(default_factory=dict)
+    prompt_config: PromptConfig = field(default_factory=PromptConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     global_memory_bank: GlobalMemoryConfig | None = None
     extras: dict[str, Any] = field(default_factory=dict)
@@ -242,11 +335,11 @@ class SEPerfRunSEConfig:
         out: dict[str, Any] = {
             "base_config": self.base_config,
             "output_dir": self.output_dir,
+            "task_type": self.task_type,
             "model": self.model.to_dict(),
             "instances": self.instances.to_dict(),
             "max_iterations": self.max_iterations,
-            "num_workers": self.num_workers,
-            "prompt_config": self.prompt_config,
+            "prompt_config": self.prompt_config.to_dict(),
             "strategy": self.strategy.to_dict(),
         }
         if self.local_memory is not None:
@@ -276,6 +369,7 @@ class SEPerfRunSEConfig:
     def from_dict(d: dict[str, Any]) -> "SEPerfRunSEConfig":
         base_config = (d or {}).get("base_config")
         output_dir = str((d or {}).get("output_dir") or "")
+        task_type = str((d or {}).get("task_type") or "effibench")
         model = ModelConfig.from_dict((d or {}).get("model") or {})
         instances = InstancesConfig.from_dict((d or {}).get("instances") or {})
         mi_val = (d or {}).get("max_iterations", 10)
@@ -283,22 +377,17 @@ class SEPerfRunSEConfig:
             max_iterations = int(mi_val)
         except Exception:
             max_iterations = 10
-        nw_val = (d or {}).get("num_workers", 1)
-        try:
-            num_workers = int(nw_val)
-        except Exception:
-            num_workers = 1
         lm_dict = (d or {}).get("local_memory")
         local_memory = LocalMemoryConfig.from_dict(lm_dict) if isinstance(lm_dict, dict) else None
-        prompt_config = (d or {}).get("prompt_config") or {}
+        prompt_config = PromptConfig.from_dict((d or {}).get("prompt_config") or {})
         strategy = StrategyConfig.from_dict((d or {}).get("strategy") or {})
         known = {
             "base_config",
             "output_dir",
+            "task_type",
             "model",
             "instances",
             "max_iterations",
-            "num_workers",
             "local_memory",
             "prompt_config",
             "strategy",
@@ -329,10 +418,10 @@ class SEPerfRunSEConfig:
         return SEPerfRunSEConfig(
             base_config=base_config,
             output_dir=output_dir,
+            task_type=task_type,
             model=model,
             instances=instances,
             max_iterations=max_iterations,
-            num_workers=num_workers,
             local_memory=local_memory,
             prompt_config=prompt_config,
             strategy=strategy,

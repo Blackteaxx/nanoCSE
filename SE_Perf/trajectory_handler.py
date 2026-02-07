@@ -1,7 +1,7 @@
 """
 轨迹池处理模块
 
-负责从 PerfAgentResult 构建轨迹数据、更新轨迹池、
+负责从 AgentResult 构建轨迹数据、更新轨迹池、
 以及迭代后处理（.tra 生成 + 轨迹池汇总）。
 """
 
@@ -18,7 +18,7 @@ from perf_config import SEPerfRunSEConfig, StepConfig
 from run_helpers import extract_optimization_info
 from run_models import TrajectoryData
 
-from perfagent.protocols import PerfAgentResult
+from perfagent.protocols import AgentResult
 
 logger = get_se_logger("trajectory_handler", emoji="📊")
 
@@ -29,7 +29,7 @@ logger = get_se_logger("trajectory_handler", emoji="📊")
 
 
 def build_trajectory_from_result(
-    result: PerfAgentResult,
+    result: AgentResult,
     instance_name: str,
     problem_description: str,
     iteration_index: int,
@@ -38,34 +38,33 @@ def build_trajectory_from_result(
     operator_name: str | None,
     output_dir: Path,
 ) -> TrajectoryData:
-    """直接从 PerfAgentResult 构建轨迹数据，避免文件 I/O 中转。"""
+    """直接从 AgentResult 构建轨迹数据，避免文件 I/O 中转。"""
     # 从优化历史构建轨迹内容
     tra_parts: list[str] = []
-    for step in result.optimization_history or []:
+    optimization_history = result.artifacts.get("optimization_history") or []
+    for step in optimization_history:
         step_str = f"Step {step.get('iteration', '?')}: "
-        if step.get("performance") is not None:
-            step_str += f"performance={step['performance']}"
-        if step.get("code_changed"):
+        metric_val = step.get("metric")
+        if metric_val is None:
+            metric_val = step.get("metric_after", step.get("metric"))
+        if metric_val is not None:
+            step_str += f"metric={metric_val}"
+        if step.get("code_changed") or step.get("success"):
             step_str += " [code changed]"
         tra_parts.append(step_str)
-
-    # 构建性能指标
-    perf_metrics = dict(result.final_metrics or {})
-    if "performance" not in perf_metrics and result.final_performance is not None:
-        perf_metrics["performance"] = result.final_performance
 
     return TrajectoryData(
         label=label,
         instance_name=instance_name,
         problem_description=problem_description,
         trajectory_content="\n".join(tra_parts),
-        patch_content=result.optimized_code or "",
+        solution=result.solution or "",
+        metric=result.metric,
+        artifacts=result.artifacts or {},
         iteration=iteration_index,
-        performance=result.final_performance,
         source_dir=str(output_dir),
         source_entry_labels=list(source_labels or []),
         operator_name=str(operator_name) if operator_name else None,
-        perf_metrics=perf_metrics,
     )
 
 
@@ -75,7 +74,7 @@ def build_trajectory_from_result(
 
 
 def update_pool_from_result(
-    result: PerfAgentResult,
+    result: AgentResult,
     instance_name: str,
     problem_description: str,
     iteration_index: int,
@@ -87,16 +86,16 @@ def update_pool_from_result(
     operator_name: str | None = None,
     output_dir: Path | None = None,
 ) -> None:
-    """直接从 PerfAgentResult 更新轨迹池，绕过文件 I/O。"""
+    """直接从 AgentResult 更新轨迹池，绕过文件 I/O。"""
     try:
-        if isinstance(se_cfg.prompt_config, dict):
-            traj_pool_manager.prompt_config = se_cfg.prompt_config
+        traj_pool_manager.prompt_config = se_cfg.prompt_config.to_dict()
 
         label = str(label_prefix) if label_prefix else f"iter{iteration_index}"
+        problem_text = problem_description or result.problem_description or ""
         traj_data = build_trajectory_from_result(
             result=result,
             instance_name=instance_name,
-            problem_description=problem_description,
+            problem_description=problem_text,
             iteration_index=iteration_index,
             label=label,
             source_labels=source_labels or [],
@@ -104,9 +103,7 @@ def update_pool_from_result(
             output_dir=output_dir or Path("."),
         )
 
-        traj_pool_manager.summarize_and_add_trajectories(
-            [traj_data.to_dict()], num_workers=se_cfg.num_workers,
-        )
+        traj_pool_manager.summarize_and_add_trajectories([traj_data.to_dict()])
 
         pool_stats = traj_pool_manager.get_pool_stats()
         run_logger.info(f"轨迹池更新完毕（直接模式）: 当前共 {pool_stats.get('total_trajectories', 'unknown')} 条轨迹")
@@ -129,11 +126,11 @@ def process_and_summarize(
     label_prefix: str | None = None,
     source_labels_map: dict[str, list[str]] | None = None,
     operator_name: str | None = None,
-    result: PerfAgentResult | None = None,
+    result: AgentResult | None = None,
     instance_name: str = "",
     problem_description: str | None = None,
 ):
-    """后处理：生成 .tra 文件并从 PerfAgentResult 更新轨迹池。"""
+    """后处理：生成 .tra 文件并从 AgentResult 更新轨迹池。"""
     try:
         # 始终生成 .tra 文件（用于持久化和调试）
         processor = TrajectoryProcessor()
@@ -146,30 +143,30 @@ def process_and_summarize(
         perf_cfg_path = step.perf_base_config or se_cfg.base_config
         opt_target, lang_val = extract_optimization_info(perf_cfg_path)
         if opt_target or lang_val:
-            pc = se_cfg.prompt_config
-            scfg = pc.setdefault("summarizer", {})
+            scfg = se_cfg.prompt_config.summarizer
             if opt_target:
                 scfg["optimization_target"] = opt_target
             if lang_val:
                 scfg["language"] = lang_val
 
-        # 直接从 PerfAgentResult 更新轨迹池
+        # 直接从 AgentResult 更新轨迹池
         source_labels = None
         if source_labels_map and isinstance(source_labels_map, dict):
             source_labels = source_labels_map.get(instance_name)
-        update_pool_from_result(
-            result=result,
-            instance_name=instance_name,
-            problem_description=problem_description or "",
-            iteration_index=iter_idx,
-            traj_pool_manager=pool_manager,
-            se_cfg=se_cfg,
-            run_logger=run_logger,
-            label_prefix=label_prefix,
-            source_labels=source_labels,
-            operator_name=operator_name,
-            output_dir=iter_dir / instance_name,
-        )
+        if result is not None:
+            update_pool_from_result(
+                result=result,
+                instance_name=instance_name,
+                problem_description=problem_description or "",
+                iteration_index=iter_idx,
+                traj_pool_manager=pool_manager,
+                se_cfg=se_cfg,
+                run_logger=run_logger,
+                label_prefix=label_prefix,
+                source_labels=source_labels,
+                operator_name=operator_name,
+                output_dir=iter_dir / instance_name,
+            )
 
         # 保存记忆快照
         try:

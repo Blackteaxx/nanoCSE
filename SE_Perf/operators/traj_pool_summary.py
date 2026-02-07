@@ -32,12 +32,14 @@ class TrajPoolSummaryOperator(TemplateOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的轨迹池总结。"""
         if not isinstance(instance_entry, dict):
             return OperatorResult()
 
-        problem_statement = instance_entry.get("problem")
+        problem_statement = problem_description
         approaches_data = {k: v for k, v in instance_entry.items() if k != "problem" and isinstance(v, dict)}
 
         if not problem_statement or not approaches_data:

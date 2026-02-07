@@ -1,7 +1,7 @@
 """
 结果 I/O 与汇总模块
 
-负责将 PerfAgentResult 写入文件、汇总所有迭代预测结果、
+负责将 AgentResult 写入文件、汇总所有迭代预测结果、
 生成最终 final.json，以及 Token 使用统计。
 """
 
@@ -14,7 +14,7 @@ from typing import Any
 
 from run_models import PredictionEntry
 
-from perfagent.protocols import PerfAgentResult
+from perfagent.protocols import AgentResult
 
 
 # ---------------------------------------------------------------------------
@@ -23,24 +23,24 @@ from perfagent.protocols import PerfAgentResult
 
 
 def write_iteration_preds_from_result(
-    result: PerfAgentResult,
+    result: AgentResult,
     iteration_dir: Path,
     logger,
 ) -> Path | None:
-    """从 PerfAgentResult 直接生成 preds.json（单实例）。"""
+    """从 AgentResult 直接生成 preds.json（单实例）。"""
     try:
-        is_passed = False
-        if result.final_performance is not None:
-            try:
-                is_passed = not math.isinf(float(result.final_performance))
-            except (ValueError, TypeError):
-                is_passed = False
-
+        metric_val = result.metric
+        is_finite = False
+        try:
+            is_finite = metric_val is not None and math.isfinite(float(metric_val))
+        except (ValueError, TypeError):
+            is_finite = False
+        is_success = bool(result.success) and result.error is None
         entry = PredictionEntry(
-            code=result.optimized_code,
-            passed=is_passed,
-            performance=result.final_performance,
-            final_metrics=result.final_metrics or {},
+            solution=result.solution,
+            metric=metric_val,
+            success=is_success and is_finite,
+            artifacts=result.artifacts or {},
         )
 
         predictions = {str(result.instance_id): entry.to_dict()}
@@ -56,8 +56,8 @@ def write_iteration_preds_from_result(
         return None
 
 
-def write_result_json(result: PerfAgentResult, output_dir: Path, logger) -> Path | None:
-    """将 PerfAgentResult 写入 result.json（供 TrajExtractor 等下游工具读取）。"""
+def write_result_json(result: AgentResult, output_dir: Path, logger) -> Path | None:
+    """将 AgentResult 写入 result.json（供 TrajExtractor 等下游工具读取）。"""
     try:
         result_path = output_dir / "result.json"
         result.to_json(result_path)
@@ -100,12 +100,12 @@ def aggregate_all_iterations_preds(root_output_dir: Path, logger) -> Path | None
 
             for instance_id, info in preds.items():
                 try:
-                    passed = bool(info.get("passed", False))
                     entry = {
                         "iteration": iter_num,
-                        "code": info.get("code", "") if passed else "",
-                        "performance": info.get("performance"),
-                        "final_metrics": info.get("final_metrics"),
+                        "solution": info.get("solution", ""),
+                        "metric": info.get("metric"),
+                        "success": info.get("success", False),
+                        "artifacts": info.get("artifacts"),
                     }
                     aggregated_data.setdefault(str(instance_id), []).append(entry)
                 except Exception:
@@ -125,7 +125,7 @@ def aggregate_all_iterations_preds(root_output_dir: Path, logger) -> Path | None
 
 
 def write_final_json_from_preds(aggregated_preds_path: Path, root_output_dir: Path, logger) -> Path | None:
-    """从汇总的 preds.json 中选择最佳结果（runtime 最小）写入 final.json。"""
+    """从汇总的 preds.json 中选择最佳结果（metric 最小）写入 final.json。"""
     try:
         with open(aggregated_preds_path, encoding="utf-8") as f:
             aggregated_data = json.load(f)
@@ -133,17 +133,17 @@ def write_final_json_from_preds(aggregated_preds_path: Path, root_output_dir: Pa
         logger.warning(f"读取汇总 preds.json 失败: {e}")
         return None
 
-    def _parse_runtime(rt_val: Any) -> float:
+    def _parse_metric(val: Any) -> float:
         try:
-            if rt_val is None:
+            if val is None:
                 return float("inf")
-            if isinstance(rt_val, (int, float)):
-                return float(rt_val)
-            if isinstance(rt_val, str):
-                lowered = rt_val.strip().lower()
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                lowered = val.strip().lower()
                 if lowered in ("inf", "infinity", "nan"):
                     return float("inf")
-                return float(rt_val)
+                return float(val)
             return float("inf")
         except Exception:
             return float("inf")
@@ -154,10 +154,10 @@ def write_final_json_from_preds(aggregated_preds_path: Path, root_output_dir: Pa
             if not isinstance(entries, list) or not entries:
                 continue
             try:
-                best_entry = min(entries, key=lambda e: _parse_runtime(e.get("performance", e.get("runtime"))))
+                best_entry = min(entries, key=lambda e: _parse_metric(e.get("metric")))
             except ValueError:
                 continue
-            final_result_map[str(instance_id)] = best_entry.get("code", "") or ""
+            final_result_map[str(instance_id)] = best_entry.get("solution", "") or ""
 
         final_path = root_output_dir / "final.json"
         with open(final_path, "w", encoding="utf-8") as f:

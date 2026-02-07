@@ -285,7 +285,7 @@ class TrajectorySummarizer:
     def summarize_trajectory(
         self,
         trajectory_content: str,
-        patch_content: str,
+        solution_content: str,
         iteration: int,
         problem_description: str | None = None,
         best_solution_text: str | None = None,
@@ -296,7 +296,7 @@ class TrajectorySummarizer:
 
         Args:
             trajectory_content: .tra文件内容
-            patch_content: .patch/.pred文件内容 (预测结果)
+            solution_content: 解/代码文本
             iteration: 迭代次数
             problem_description: 问题描述（可选，将并入提示词）
 
@@ -311,7 +311,7 @@ class TrajectorySummarizer:
         system_prompt = summarizer.get_system_prompt()
         user_prompt = summarizer.format_user_prompt(
             trajectory_content,
-            patch_content,
+            solution_content,
             problem_description,
             best_solution=best_solution_text,
             target_solution=target_solution_text,
@@ -358,4 +358,4 @@ class TrajectorySummarizer:
         # 所有重试失败，返回备用总结
         if last_error:
             self.logger.error(f"LLM轨迹总结最终失败 (迭代{iteration}): {last_error}")
-        return summarizer.create_fallback_summary(trajectory_content, patch_content, iteration)
+        return summarizer.create_fallback_summary(trajectory_content, solution_content or "", iteration)

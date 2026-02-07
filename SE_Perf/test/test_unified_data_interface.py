@@ -71,7 +71,7 @@ def test_instance_data_manager():
         print(f"  ✅ 完整性验证: {completeness['completeness_score']}%")
 
         # 验证.patch优先于.pred
-        if "diff --git" in instance_data.patch_content:
+        if "diff --git" in instance_data.solution_content:
             print("  ✅ 正确使用.patch文件")
         else:
             print("  ❌ 错误使用.pred文件")
@@ -105,8 +105,8 @@ def test_four_core_formats():
             return False
 
         # 3. PATCH (预测结果)
-        if instance_data.patch_content:
-            print(f"  ✅ PATCH Content: {len(instance_data.patch_content)} 字符")
+        if instance_data.solution_content:
+            print(f"  ✅ Solution Content: {len(instance_data.solution_content)} 字符")
         else:
             print("  ❌ PATCH Content 缺失")
             return False
@@ -152,7 +152,7 @@ def test_trajectory_pool():
             instance_name="test-instance",
             iteration=1,
             trajectory_content='{"test": "trajectory"}',
-            patch_content="test patch content",
+            solution_content="test patch content",
             problem_description="Test problem description",
         )
 
@@ -223,7 +223,7 @@ def test_operator_integration():
         # 访问四种核心数据
         problem = instance_data.problem_description
         tra_data = instance_data.tra_content
-        patch_data = instance_data.patch_content
+        patch_data = instance_data.solution_content
         traj_data = instance_data.traj_content
 
         print(f"  ✅ Problem访问: {'成功' if problem else '失败'}")

@@ -1,0 +1,72 @@
+
+# SE Configuration for LiveCodeBench (Code Generation)
+# Task: Generate correct and efficient code solutions
+
+# 任务类型
+task_type: livecodebench
+
+model:
+  name:
+  api_base:
+  api_key:
+  max_output_tokens: 30000
+  temperature: 0.7
+
+# 算子模型配置
+operator_models:
+  name:
+  api_base:
+  api_key:
+  max_input_tokens: 30000
+  max_output_tokens: 30000
+  temperature: 0.7
+
+operator_selection_mode: weighted
+
+local_memory:
+  enabled: true
+  format_mode: short
+
+# 实例配置
+instances:
+  instances_dir: instances/
+
+output_dir: "trajectories_perf/livecodebench_{timestamp}"
+num_workers: 20
+
+prompt_config:
+  summarizer:
+    enable_summary: true
+    language: ""   # 从实例数据自动检测
+    optimization_target: "pass_rate"
+    # system_prompt / user_prompt_template 可在此覆盖；
+    # 留空则使用 TrajSummarizer 内置的通用默认值。
+
+max_iterations: 1
+
+# 基础配置引用
+base_config: "configs/perf_configs/config_livecodebench.yaml"
+
+# 策略编排
+strategy:
+  iterations:
+    # 初始化：生成 K=5 个初始解
+    - operator: "plan"
+      num: 5
+      trajectory_labels: ["sol1", "sol2", "sol3", "sol4", "sol5"]
+
+    # 进化：交替使用 reflection_refine 和 crossover
+    - operator: "reflection_refine"
+      trajectory_label: "sol6"
+
+    - operator: "crossover"
+      trajectory_label: "sol7"
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol8"
+
+    - operator: "crossover"
+      trajectory_label: "sol9"
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol10"

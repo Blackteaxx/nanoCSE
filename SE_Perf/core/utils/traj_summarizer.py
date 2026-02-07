@@ -34,30 +34,30 @@ class TrajSummarizer:
         if isinstance(override, str) and override.strip():
             base = override
         else:
-            base = """You are an AI assistant specialized in analyzing iterative code optimization trajectories.
+            base = """You are an AI assistant specialized in analyzing iterative optimization trajectories.
 
-Your task is to analyze the provided PerfAgent execution data and provide a structured summary of the agent's problem-solving journey.
+Your task is to analyze the provided agent execution data and provide a structured summary of the agent's problem-solving journey.
 
 The agent's guiding principle is "CORRECTNESS FIRST, THEN PERFORMANCE". Your goal is to capture this iterative process, including its successes, failures, and analytical insights.
 
 You will be provided with:
 1. A problem description (optional)
 2. A trajectory file (.tra) in JSON format containing the agent's step-by-step execution and chat history.
-3. A prediction file (.pred) containing the final solution code (this file might be redundant if the trajectory already contains the final code, but should be used as the definitive "final_solution" if present).
+3. A prediction/solution file containing the final solution (this file might be redundant if the trajectory already contains the final solution, but should be used as the definitive "final_solution" if present).
 
 Return your analysis in JSON format with the following fields:
 
-- "solution_name": The nick name of the final solution (e.g., "monotonic_stack").
+- "solution_name": The nick name of the final solution (e.g., "monotonic_stack", "greedy_v2").
 
 - "approach_summary": A concise high-level narrative describing the agent's complete journey and final approach (replaces 'overall_summary').
 
 - "evolution_steps": A list of objects, one for each iteration (i.e., each `assistant` turn) found in the trajectory file. This chronologically tracks the agent's journey.
     - "iteration": The iteration number (e.g., 1, 2, 3...).
     - "thinking_summary": A summary of the agent's reasoning for this step (from its "Thinking" section).
-    - "change_type": The *type* of change implemented. (e.g., "initial_implementation", "bugfix", "algorithm", "data-structure", "I/O_optimization", "micro-optimization").
+    - "change_type": The *type* of change implemented. (e.g., "initial_implementation", "bugfix", "algorithm", "data-structure", "I/O_optimization", "micro-optimization", "reasoning_refinement").
     - "change_description": The specific technique or change implemented.
     - "metrics": The resulting metrics from the *next* 'user' feedback message (i.e., the feedback *after* this change was applied).
-    - "status": A concise summary of this iteration's outcome (e.g., "Success: 100% pass rate", "Failed: Correctness regression", "Failed: Error", "Failed: Performance regression").
+    - "status": A concise summary of this iteration's outcome (e.g., "Success: metric improved", "Failed: Correctness regression", "Failed: Error", "Failed: Metric regression").
 
 - "analysis": An object containing high-level insights derived from the entire trajectory.
     - "best_strategy": An object describing the *best correct solution* achieved during the trajectory (if any). If no solution was ever correct, this can be null.
@@ -66,8 +66,8 @@ Return your analysis in JSON format with the following fields:
         - "data_structures": ["e.g., stack", "heap"]
     - "root_causes_of_failures": A list of objects detailing *why* iterations failed.
         - "iteration": The iteration number that failed.
-        - "cause": "The root cause of the failure (e.g., 'Lost nested state by replacing stack with a single variable')."
-    - "key_learnings": A list of generalizable insights or patterns observed (e.g., "Agent successfully identified O(n) stack solution but repeatedly broke correctness during I/O micro-optimizations.").
+        - "cause": "The root cause of the failure."
+    - "key_learnings": A list of generalizable insights or patterns observed.
 """
         return base
 
@@ -86,9 +86,9 @@ Return your analysis in JSON format with the following fields:
         override = cfg.get("user_prompt_template")
         if isinstance(override, str) and override.strip():
             return override
-        return """Please analyze the following PerfAgent trajectory and provide insights about the solution approach.
+        return """Please analyze the following optimization trajectory and provide insights about the solution approach.
 
-The trajectory tried to iteratively improve a given program in {language} for the problem described below, aiming to increase its **{optimization_target}**.
+The trajectory tried to iteratively improve a solution{language_clause}{target_clause} for the problem described below.
 
 Problem Description:
 {problem_description}
@@ -96,15 +96,15 @@ Problem Description:
 Trajectory Data (.tra file):
 {trajectory_content}
 
-Prediction Result (.patch/.pred file):
-{patch_content}
+Solution:
+{solution_content}
 
 Please provide your analysis in the JSON format specified in the system prompt."""
 
     def format_user_prompt(
         self,
         trajectory_content: str,
-        patch_content: str,
+        solution_content: str,
         problem_description: str | None = None,
         best_solution: str | None = None,
         target_solution: str | None = None,
@@ -114,7 +114,7 @@ Please provide your analysis in the JSON format specified in the system prompt."
 
         Args:
             trajectory_content: 轨迹文件内容
-            patch_content: 预测文件内容 (.patch/.pred)
+            solution_content: 解/代码文本
             problem_description: 问题描述（可选）
 
         Returns:
@@ -128,14 +128,21 @@ Please provide your analysis in the JSON format specified in the system prompt."
             cfg = {}
         lang = cfg.get("language")
         opt = cfg.get("optimization_target")
+        lang_str = (lang or "").strip() if isinstance(lang, str) else ""
+        opt_str = (opt or "").strip() if isinstance(opt, str) else ""
+        # 构建可选子句，仅在有值时显示
+        language_clause = f" in {lang_str}" if lang_str else ""
+        target_clause = f", aiming to optimize **{opt_str}**" if opt_str else ""
         mapping = {
             "problem_description": problem_description or "N/A",
             "trajectory_content": trajectory_content,
-            "patch_content": patch_content or "",
+            "solution_content": solution_content or "",
             "best_solution": best_solution or "",
-            "target_solution": target_solution or (patch_content or ""),
-            "language": (lang or "").strip() if isinstance(lang, str) else "",
-            "optimization_target": (opt or "").strip() if isinstance(opt, str) else "",
+            "target_solution": target_solution or (solution_content or ""),
+            "language": lang_str,
+            "optimization_target": opt_str,
+            "language_clause": language_clause,
+            "target_clause": target_clause,
         }
         return template.format(**mapping)
 
@@ -182,13 +189,13 @@ Please provide your analysis in the JSON format specified in the system prompt."
             raise ValueError(f"响应格式缺少键: {', '.join(missing)}")
         return True
 
-    def create_fallback_summary(self, trajectory_content: str, patch_content: str, iteration: int) -> dict[str, Any]:
+    def create_fallback_summary(self, trajectory_content: str, solution_content: str, iteration: int) -> dict[str, Any]:
         """
         创建备用总结（当LLM调用失败时使用）
 
         Args:
             trajectory_content: 轨迹内容
-            patch_content: 预测内容 (.patch/.pred)
+            solution_content: 解/代码文本
             iteration: 迭代次数
 
         Returns:
@@ -196,7 +203,7 @@ Please provide your analysis in the JSON format specified in the system prompt."
         """
         # 简单的备用分析
         trajectory_length = len(trajectory_content.split("\n")) if trajectory_content else 0
-        patch_length = len(patch_content) if patch_content else 0
+        patch_length = len(solution_content) if solution_content else 0
 
         return {
             "approach_summary": f"Iteration {iteration} execution with {trajectory_length} trajectory steps",

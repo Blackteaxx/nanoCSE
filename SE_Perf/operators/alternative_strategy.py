@@ -29,6 +29,8 @@ class AlternativeStrategyOperator(BaseOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的替代策略生成。"""
         if not isinstance(instance_entry, dict):
@@ -55,7 +57,7 @@ class AlternativeStrategyOperator(BaseOperator):
         if not previous_approach_summary:
             previous_approach_summary = self._format_entry(instance_entry)
 
-        if not instance_entry.get("problem") or not previous_approach_summary:
+        if not problem_description or not previous_approach_summary:
             return OperatorResult(source_labels=used_labels)
 
         content = self._build_additional_requirements(previous_approach_summary)

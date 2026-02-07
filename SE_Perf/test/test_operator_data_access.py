@@ -35,12 +35,12 @@ class MockOperator:
         # 2. 访问四种核心数据格式
         problem = instance_data.problem_description
         tra_content = instance_data.tra_content
-        patch_content = instance_data.patch_content
+        solution_content = instance_data.solution_content
         traj_content = instance_data.traj_content
 
         print(f"  📝 问题描述: {'✅' if problem else '❌'} ({len(problem) if problem else 0} 字符)")
         print(f"  📊 TRA数据: {'✅' if tra_content else '❌'} ({len(tra_content) if tra_content else 0} 字符)")
-        print(f"  🔄 PATCH数据: {'✅' if patch_content else '❌'} ({len(patch_content) if patch_content else 0} 字符)")
+        print(f"  🔄 Solution数据: {'✅' if solution_content else '❌'} ({len(solution_content) if solution_content else 0} 字符)")
         print(f"  📋 TRAJ数据: {'✅' if traj_content else '❌'} ({len(traj_content) if traj_content else 0} 字符)")
 
         # 3. 获取轨迹池历史数据 (如果可用)
@@ -59,7 +59,7 @@ class MockOperator:
         print(f"  📈 数据完整性: {completeness['completeness_score']}%")
 
         # 5. 模拟算子逻辑
-        result = self._mock_operator_logic(problem, tra_content, patch_content, pool_data)
+        result = self._mock_operator_logic(problem, tra_content, solution_content, pool_data)
 
         return {
             "instance_name": instance_data.instance_name,
@@ -68,10 +68,10 @@ class MockOperator:
             "has_pool_data": pool_data is not None,
         }
 
-    def _mock_operator_logic(self, problem: str, tra_content: str, patch_content: str, pool_data: dict) -> str:
+    def _mock_operator_logic(self, problem: str, tra_content: str, solution_content: str, pool_data: dict) -> str:
         """模拟算子的核心逻辑"""
 
-        if not problem or not tra_content or not patch_content:
+        if not problem or not tra_content or not solution_content:
             return "数据不完整，无法处理"
 
         # 模拟不同类型算子的处理逻辑
@@ -231,7 +231,7 @@ def test_data_format_standards():
             checks = {
                 "problem_text": isinstance(instance_data.problem_description, str),
                 "tra_json": instance_data.tra_content and "{" in instance_data.tra_content,
-                "patch_diff": instance_data.patch_content and "diff --git" in instance_data.patch_content,
+                "patch_diff": instance_data.solution_content and "diff --git" in instance_data.solution_content,
                 "traj_text": isinstance(instance_data.traj_content, str),
             }
 
@@ -276,7 +276,7 @@ def test_priority_mechanisms():
         instance_data = manager.get_instance_data(str(instance_dir))
 
         # 验证优先级
-        patch_priority = "patch content" in instance_data.patch_content
+        patch_priority = "patch content" in instance_data.solution_content
         problem_priority = instance_data.problem_description == "problem from file"
 
         print(f"    PATCH优先级: {'✅' if patch_priority else '❌'} (.patch > .pred)")

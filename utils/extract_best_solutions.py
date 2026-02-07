@@ -29,8 +29,8 @@ from typing import NamedTuple
 class SolutionInfo(NamedTuple):
     """解决方案信息"""
 
-    code: str
-    performance: float
+    solution: str
+    metric: float
     iteration: int
     label: str
 
@@ -120,10 +120,10 @@ def extract_best_solution_from_traj_pool(
             continue
 
         iteration = value.get("iteration")
-        performance = value.get("performance")
-        code = value.get("code")
+        metric = value.get("metric")
+        solution = value.get("solution")
 
-        if iteration is None or code is None:
+        if iteration is None or solution is None:
             continue
 
         try:
@@ -135,16 +135,16 @@ def extract_best_solution_from_traj_pool(
         if iter_num > max_iterations:
             continue
 
-        perf_val = parse_performance(performance)
+        perf_val = parse_performance(metric)
 
-        # 跳过没有代码的解决方案
-        if not code or not code.strip():
+        # 跳过没有解的方案
+        if not solution or not solution.strip():
             continue
 
         candidates.append(
             SolutionInfo(
-                code=code,
-                performance=perf_val,
+                solution=solution,
+                metric=perf_val,
                 iteration=iter_num,
                 label=key,
             )
@@ -154,14 +154,14 @@ def extract_best_solution_from_traj_pool(
         return None
 
     # 过滤掉 Infinity 的解决方案
-    valid_candidates = [c for c in candidates if c.performance != float("inf")]
+    valid_candidates = [c for c in candidates if c.metric != float("inf")]
 
     if not valid_candidates:
         # 如果所有解决方案都是 Infinity，跳过该任务
         return None
 
-    # 选择性能最优的（最小值）
-    best = min(valid_candidates, key=lambda x: (x.performance, -x.iteration))
+    # 选择指标最优的（最小值）
+    best = min(valid_candidates, key=lambda x: (x.metric, -x.iteration))
     return best
 
 
@@ -341,11 +341,11 @@ def extract_best_solutions(
             continue
 
         stats["extracted"] += 1
-        results[task_name] = best_solution.code
+        results[task_name] = best_solution.solution
 
         if verbose:
-            perf_str = f"{best_solution.performance:.6f}" if best_solution.performance != float("inf") else "Infinity"
-            print(f"  [提取] {task_name}: 迭代 {best_solution.iteration}, 性能 {perf_str}")
+            perf_str = f"{best_solution.metric:.6f}" if best_solution.metric != float("inf") else "Infinity"
+            print(f"  [提取] {task_name}: 迭代 {best_solution.iteration}, metric {perf_str}")
 
     if verbose:
         print("\n统计:")

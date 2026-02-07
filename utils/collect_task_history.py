@@ -21,9 +21,9 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _parse_runtime_from_result(result_json: dict[str, Any]) -> Any:
+def _parse_metric_from_result(result_json: dict[str, Any]) -> Any:
     try:
-        return result_json.get("final_performance")
+        return result_json.get("metric")
     except Exception:
         return None
 
@@ -44,7 +44,7 @@ def _collect_instance_history(root: Path, task_name: str) -> dict[str, Any]:
                 data["problem"] = _read_text(candidate)
                 break
 
-    # iterations: collect pred code and runtime per iteration
+    # iterations: collect pred code and metric per iteration
     entries: list[tuple[int, dict[str, Any]]] = []
     for iter_dir in root.glob("iteration_*"):
         m = re.search(r"(\d+)$", iter_dir.name)
@@ -57,7 +57,7 @@ def _collect_instance_history(root: Path, task_name: str) -> dict[str, Any]:
         result_file = inst_dir / "result.json"
 
         code = ""
-        runtime = None
+        metric = None
 
         if pred_file.exists():
             code = _read_text(pred_file)
@@ -79,9 +79,9 @@ def _collect_instance_history(root: Path, task_name: str) -> dict[str, Any]:
                 code = sub.get("code", "")
 
         if result_file.exists():
-            runtime = _parse_runtime_from_result(_read_json(result_file))
+            metric = _parse_metric_from_result(_read_json(result_file))
 
-        entries.append((iter_num, {"code": code, "runtime": runtime}))
+        entries.append((iter_num, {"solution": code, "metric": metric}))
 
     entries.sort(key=lambda x: x[0])
     data["iteration"] = {str(k): v for k, v in entries}
@@ -142,15 +142,15 @@ def collect_openevolve_archive(folder: str, output: str | None = None) -> dict[s
             prog_json = _read_json(prog_file)
             code = prog_json.get("code") or ""
             metrics = prog_json.get("metrics") or {}
-            runtime = None
+            metric = None
             if isinstance(metrics, dict):
-                runtime = metrics.get("trimmed_mean_runtime")
+                metric = metrics.get("trimmed_mean_runtime")
             it_found = prog_json.get("iteration_found")
             key = str(it_found) if isinstance(it_found, int) else None
             if key is None:
                 idx += 1
                 key = str(idx)
-            iteration_map[key] = {"code": code, "runtime": runtime}
+            iteration_map[key] = {"solution": code, "metric": metric}
         sorted_items = sorted(((int(k), v) for k, v in iteration_map.items()), key=lambda x: x[0])
         data: dict[str, Any] = {"problem": "", "iteration": {str(k): v for k, v in sorted_items}}
         result[task_name] = data

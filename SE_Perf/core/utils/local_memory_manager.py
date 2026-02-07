@@ -100,7 +100,7 @@ class LocalMemoryManager:
                 return None
         except Exception:
             pass
-        return {"code", "perf_metrics"}
+        return {"solution", "metric", "artifacts"}
 
     def initialize(self) -> None:
         """确保记忆库文件存在，若不存在则创建空结构。"""
@@ -227,18 +227,50 @@ class LocalMemoryManager:
         try:
             if perf_old is None or perf_new is None:
                 return "N/A"
+            label = "Metric"
             if math.isinf(perf_old) and not math.isinf(perf_new):
-                return f"Runtime: inf -> {perf_new}"
+                return f"{label}: inf -> {perf_new}"
             if math.isinf(perf_new):
-                return f"Runtime: {perf_old} -> inf"
+                return f"{label}: {perf_old} -> inf"
             delta = perf_new - perf_old
             pct = (delta / perf_old * 100.0) if perf_old and not math.isinf(perf_old) else None
             if pct is None:
-                return f"Runtime: {perf_old} -> {perf_new}"
+                return f"{label}: {perf_old} -> {perf_new}"
             sign = "+" if pct >= 0 else ""
-            return f"Runtime: {perf_old} -> {perf_new} ({sign}{pct:.1f}%)"
+            return f"{label}: {perf_old} -> {perf_new} ({sign}{pct:.1f}%)"
         except Exception:
             return "N/A"
+
+    @staticmethod
+    def _build_optimization_target_detail(target: str) -> str:
+        """根据优化目标生成补充说明文本。
+
+        不同的任务类型和优化目标需要不同的描述。此方法根据 target 关键词
+        自动选择合适的描述文本，避免在 prompt 模板中硬编码。
+        """
+        t = (target or "").strip().lower()
+        if t == "integral":
+            return (
+                "The optimization target is **integral**:\n"
+                "- Interpret this as the **integral of memory usage over runtime** for all test cases, "
+                "i.e., the **area under the memory–time curve**.\n"
+                "- Your performance judgments should consider **both** runtime and memory, "
+                "focusing on how each slot affects this **memory–time integral**, "
+                "not just speed or memory in isolation.\n"
+                "- A slot that is slightly slower but uses much less memory can be better "
+                "if it reduces the overall integral, and vice versa."
+            )
+        if t == "runtime":
+            return "The optimization target is **runtime** (lower is better). Focus on reducing execution time."
+        if t == "memory":
+            return "The optimization target is **memory** (lower is better). Focus on reducing peak memory usage."
+        if t in ("accuracy", "pass_rate", "correctness"):
+            return (
+                f"The optimization target is **{target}**. "
+                "Focus on maximizing correctness. The metric has been inverted so that lower is better."
+            )
+        # 通用回退
+        return f"The optimization target is **{target}** (lower is better)." if target else ""
 
     def _build_extraction_prompts(
         self,
@@ -495,10 +527,7 @@ Your task is to **identify the core algorithmic strategy** used in the Current S
 
 {optimization_target}
 
-The optimization target is **integral**:  
-- Interpret this as the **integral of memory usage over runtime** for all test cases, i.e., the **area under the memory–time curve**.
-- Your performance judgments should consider **both** runtime and memory, focusing on how each slot affects this **memory–time integral**, not just speed or memory in isolation.
-- A slot that is slightly slower but uses much less memory can be better if it reduces the overall integral, and vice versa.
+{optimization_target_detail}
 
 ## Language
 
@@ -554,8 +583,10 @@ The optimization target is **integral**:
         best_solution_text = _fmt_entry_text(best_entry)
 
         # 根据是否是初始化场景选择格式化参数
+        opt_target_str = str(target or "Runtime")
         format_kwargs = {
-            "optimization_target": str(target or "Runtime"),
+            "optimization_target": opt_target_str,
+            "optimization_target_detail": self._build_optimization_target_detail(opt_target_str),
             "language": str(language or "Unknown"),
             "problem_description": str(problem or "N/A"),
             "current_solution": current_solution_text,
@@ -737,16 +768,12 @@ Your task is to:
         """
         else:
             # 变异失败场景：比较 source 和 current
-            user_template = """    
+            user_template = """
 ## Optimization Target
 
 {optimization_target}
 
-The optimization target is **integral**:  
-- Interpret this as the **integral of memory usage over runtime** for all test cases, i.e., the **area under the memory–time curve**.
-- Your performance judgments should consider **both** runtime and memory, focusing on how each slot affects this **memory–time integral**, not just speed or memory in isolation.
-- A slot that is slightly slower but uses much less memory can be better if it reduces the overall integral, and vice versa.
-
+{optimization_target_detail}
 
 ## Language
 
@@ -802,8 +829,10 @@ The optimization target is **integral**:
         best_solution_text = _fmt_entry_text(best_entry)
 
         # 根据是否是初始化场景选择格式化参数
+        opt_target_str = str(target or "Runtime")
         format_kwargs = {
-            "optimization_target": str(target or "Runtime"),
+            "optimization_target": opt_target_str,
+            "optimization_target_detail": self._build_optimization_target_detail(opt_target_str),
             "language": str(language or "Unknown"),
             "problem_description": str(problem or "N/A"),
             "current_solution": current_solution_text,
@@ -1182,7 +1211,7 @@ Compress and consolidate the experience_library above. Output ONLY the valid JSO
 
         Args:
             instance_name: 实例名称。
-            current_entry: 当前轨迹条目（包含 iteration, summary, code, perf_metrics 等）。
+            current_entry: 当前轨迹条目（包含 iteration, summary, solution, metric, artifacts 等）。
             source_entries: 来源轨迹条目列表（用于对比 diff 和性能变化）。
             best_entry: 当前最佳轨迹条目（用于参考）。
             problem_description: 问题描述。
@@ -1194,42 +1223,27 @@ Compress and consolidate the experience_library above. Output ONLY the valid JSO
 
         # Extract data from entries
         iteration = int(current_entry.get("iteration") or 0)
-        perf_metrics = current_entry.get("perf_metrics")
         current_label = str(current_entry.get("label") or "")
 
-        # 计算性能差异（old vs new）
+        # 计算性能差异（old vs new），统一使用 metric 字段
         perf_old = None
         perf_new = None
         try:
-            # New performance
-            if perf_metrics:
-                new_perf_val = perf_metrics.get("performance")
-                perf_new = float(new_perf_val) if new_perf_val is not None else None
-            if perf_new is None:
-                # Fallback to top-level performance field
-                new_perf_val = current_entry.get("performance")
-                perf_new = float(new_perf_val) if new_perf_val is not None else None
+            # New metric
+            new_perf_val = current_entry.get("metric")
+            perf_new = float(new_perf_val) if new_perf_val is not None else None
 
-            # Old performance: Compare against ALL source entries (Best/Min)
+            # Old metric: Compare against ALL source entries (Best/Min)
             source_perfs = []
             if source_entries:
                 for entry in source_entries:
-                    val = None
-                    # Try perf_metrics
-                    entry_perf_metrics = entry.get("perf_metrics")
-                    if entry_perf_metrics:
-                        perf_val = entry_perf_metrics.get("performance")
-                        val = float(perf_val) if perf_val is not None else None
-                    # Try top-level
-                    if val is None:
-                        perf_val = entry.get("performance")
-                        val = float(perf_val) if perf_val is not None else None
-
+                    perf_val = entry.get("metric")
+                    val = float(perf_val) if perf_val is not None else None
                     if val is not None:
                         source_perfs.append(val)
 
             if source_perfs:
-                # Assuming that Lower is Better, so we take the minimum of source entries
+                # Lower is Better, take the minimum of source entries
                 perf_old = min(source_perfs)
         except Exception:
             pass

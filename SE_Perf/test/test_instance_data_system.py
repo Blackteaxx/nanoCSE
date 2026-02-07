@@ -31,7 +31,7 @@ def test_instance_data_management():
         print(f"  Problem: {'✓' if instance_data.problem_description else '✗'}")
         print(f"  TRA: {'✓' if instance_data.tra_content else '✗'}")
         print(f"  TRAJ: {'✓' if instance_data.traj_content else '✗'}")
-        print(f"  Patch: {'✓' if instance_data.patch_content else '✗'}")
+        print(f"  Solution: {'✓' if instance_data.solution_content else '✗'}")
         print(f"  可用文件: {instance_data.available_files}")
 
         if instance_data.problem_description:
@@ -50,7 +50,7 @@ def test_instance_data_management():
             print(f"  实例{i + 1}: {instance.instance_name}")
             print(
                 f"    数据完整性: Problem={bool(instance.problem_description)}, "
-                f"TRA={bool(instance.tra_content)}, Patch={bool(instance.patch_content)}"
+                f"TRA={bool(instance.tra_content)}, Solution={bool(instance.solution_content)}"
             )
 
         if len(instances) > 3:

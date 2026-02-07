@@ -15,7 +15,7 @@ from core.utils.global_memory_manager import GlobalMemoryManager
 from core.utils.local_memory_manager import LocalMemoryManager
 from core.utils.traj_pool_manager import TrajPoolManager
 from operators import create_operator
-from operators.base import OperatorContext, OperatorResult
+from operators.base import InstanceTrajectories, OperatorContext, OperatorResult
 from perf_config import SEPerfRunSEConfig, StepConfig
 from results_io import write_iteration_preds_from_result, write_result_json
 from run_helpers import build_operator_context, build_perf_agent_config, retrieve_global_memory
@@ -23,7 +23,8 @@ from trajectory_handler import process_and_summarize
 
 from perfagent.agent import PerfAgent
 from perfagent.config import PerfAgentConfig
-from perfagent.protocols import PerfAgentRequest, PerfAgentResult
+from perfagent.protocols import AgentRequest, AgentResult
+from perfagent.task_runner import BaseTaskRunner
 
 
 # ---------------------------------------------------------------------------
@@ -32,26 +33,33 @@ from perfagent.protocols import PerfAgentRequest, PerfAgentResult
 
 
 def run_single_perfagent(
-    instance,
+    task_data_path: Path,
+    instance_id: str,
     perf_config: PerfAgentConfig,
     operator_result: OperatorResult,
     local_memory_text: str | None,
     global_memory_text: str | None,
     output_dir: Path,
     logger,
-) -> PerfAgentResult:
-    """构建 PerfAgentRequest 并直接调用 PerfAgent.run_with_request()。"""
-    instance_id = getattr(instance, "task_name", None) or getattr(instance, "id", "unknown")
+    problem_description: str | None = None,
+    task_runner: BaseTaskRunner | None = None,
+) -> AgentResult:
+    """构建 AgentRequest 并直接调用 PerfAgent.run_with_request()。
+
+    若调用方已创建 TaskRunner（如 perf_run 按 task_type 创建），应传入
+    task_runner，以便 PerfAgent 使用正确的任务类型（effibench / livecodebench / aime 等）。
+    未传入时 PerfAgent 内部 _ensure_task_runner 会创建 EffiBenchRunner（向后兼容）。
+    """
 
     # 构建配置副本
     config = copy.deepcopy(perf_config)
     config.logging.trajectory_dir = output_dir
     config.logging.log_dir = output_dir
 
-    request = PerfAgentRequest(
-        instance=instance,
+    request = AgentRequest(
+        task_data_path=task_data_path,
         config=config,
-        initial_code=operator_result.initial_code,
+        initial_solution=operator_result.initial_solution,
         additional_requirements=operator_result.additional_requirements,
         local_memory=local_memory_text,
         global_memory=global_memory_text,
@@ -59,9 +67,9 @@ def run_single_perfagent(
     )
 
     logger.info(
-        f"构建 PerfAgentRequest: instance={instance_id}, "
+        f"构建 AgentRequest: instance={instance_id}, "
         f"has_additional_requirements={bool(operator_result.additional_requirements)}, "
-        f"has_initial_code={bool(operator_result.initial_code)}, "
+        f"has_initial_solution={bool(operator_result.initial_solution)}, "
         f"has_local_memory={bool(local_memory_text)}, "
         f"has_global_memory={bool(global_memory_text)}"
     )
@@ -70,17 +78,21 @@ def run_single_perfagent(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        agent = PerfAgent(config)
+        agent = PerfAgent(config, task_runner=task_runner)
         result = agent.run_with_request(request)
         logger.info(
             f"PerfAgent 执行完成: instance={instance_id}, "
             f"success={result.success}, "
-            f"performance={result.final_performance}"
+            f"metric={result.metric}"
         )
         return result
     except Exception as e:
         logger.error(f"PerfAgent 执行异常: {e}", exc_info=True)
-        return PerfAgentResult.from_error(instance_id=instance_id, error=str(e))
+        return AgentResult.from_error(
+            instance_id=instance_id,
+            error=str(e),
+            problem_description=problem_description or "",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -91,10 +103,11 @@ def run_single_perfagent(
 def run_operator(
     step: StepConfig,
     instance_name: str,
-    instance_entry: dict[str, Any],
+    instance_entry: InstanceTrajectories | dict[str, Any],
     op_context: OperatorContext,
     traj_pool_manager: TrajPoolManager,
     logger,
+    problem_description: str = "",
 ) -> list[OperatorResult]:
     """执行算子并返回 OperatorResult 列表。
 
@@ -116,12 +129,16 @@ def run_operator(
         if step.is_filter:
             op_instance.run_for_instance(
                 step, instance_name, instance_entry,
+                problem_description=problem_description,
                 traj_pool_manager=traj_pool_manager,
             )
             logger.info("Filter 算子执行完毕，跳过后续 PerfAgent 运行")
             return []
 
-        result = op_instance.run_for_instance(step, instance_name, instance_entry)
+        result = op_instance.run_for_instance(
+            step, instance_name, instance_entry,
+            problem_description=problem_description,
+        )
         if isinstance(result, list):
             return result  # Plan 算子返回 list[OperatorResult]
         return [result]
@@ -154,19 +171,19 @@ def resolve_labels(step: StepConfig, num_results: int) -> list[str]:
 def execute_single_run(
     op_result: OperatorResult,
     label: str | None,
-    instance,
+    task_data_path: Path,
     instance_name: str,
+    problem_description: str,
     se_cfg: SEPerfRunSEConfig,
     step: StepConfig,
     traj_pool_manager: TrajPoolManager,
     local_memory_text: str | None,
     global_memory: GlobalMemoryManager | None,
-    default_lang: str,
-    default_target: str,
     output_dir: str,
     iteration_idx: int,
     mode: str,
     logger,
+    task_runner: BaseTaskRunner | None = None,
 ) -> None:
     """执行单次 PerfAgent 运行并后处理。"""
     iter_dir = Path(output_dir) / f"iteration_{iteration_idx}"
@@ -176,11 +193,9 @@ def execute_single_run(
     global_memory_text = retrieve_global_memory(
         global_memory=global_memory,
         instance_name=instance_name,
-        problem_description=instance.description_md or "",
+        problem_description=problem_description or "",
         additional_requirements=op_result.additional_requirements,
         local_memory_text=local_memory_text,
-        default_lang=default_lang,
-        default_target=default_target,
     )
 
     # 构建 PerfAgent 配置
@@ -201,13 +216,16 @@ def execute_single_run(
 
     # 执行 PerfAgent
     result = run_single_perfagent(
-        instance=instance,
+        task_data_path=task_data_path,
+        instance_id=instance_name,
         perf_config=perf_config,
         operator_result=op_result,
         local_memory_text=local_memory_text,
         global_memory_text=global_memory_text,
         output_dir=instance_output_dir,
         logger=logger,
+        problem_description=problem_description,
+        task_runner=task_runner,
     )
 
     # 写入文件（用于持久化和调试）
@@ -219,6 +237,7 @@ def execute_single_run(
         source_labels_map = (
             {instance_name: op_result.source_labels} if op_result.source_labels else None
         )
+        result_problem = result.problem_description or problem_description or ""
         process_and_summarize(
             iter_dir,
             iteration_idx,
@@ -231,14 +250,14 @@ def execute_single_run(
             operator_name=step.operator,
             result=result,
             instance_name=instance_name,
-            problem_description=instance.description_md or "",
+            problem_description=result_problem,
         )
 
     if op_result.source_labels:
         logger.info(
             f"算子 {step.operator} 执行完成: "
             f"has_additional_requirements={bool(op_result.additional_requirements)}, "
-            f"has_initial_code={bool(op_result.initial_code)}, "
+            f"has_initial_solution={bool(op_result.initial_solution)}, "
             f"source_labels={op_result.source_labels}"
         )
 
@@ -250,18 +269,18 @@ def execute_single_run(
 
 def execute_iteration(
     step: StepConfig,
-    instance,
-    instance_name: str,
+    task_data_path: Path,
+    instance_id: str,
+    problem_description: str,
     se_cfg: SEPerfRunSEConfig,
     traj_pool_manager: TrajPoolManager,
     local_memory: LocalMemoryManager | None,
     global_memory: GlobalMemoryManager | None,
-    default_lang: str,
-    default_target: str,
     output_dir: str,
     iteration_idx: int,
     mode: str,
     logger,
+    task_runner: BaseTaskRunner | None = None,
 ) -> int:
     """执行单个迭代步骤，返回下一个迭代索引。
 
@@ -277,13 +296,17 @@ def execute_iteration(
         pass
 
     # 获取当前实例在轨迹池中的条目
-    instance_entry = traj_pool_manager.get_instance(instance_name) or {}
+    raw_entry = traj_pool_manager.get_instance(instance_id) or {}
+    instance_entry = InstanceTrajectories.from_dict(raw_entry)
 
     # 构建算子上下文
     op_context = build_operator_context(se_cfg, step)
 
     # 执行算子
-    op_results = run_operator(step, instance_name, instance_entry, op_context, traj_pool_manager, logger)
+    op_results = run_operator(
+        step, instance_id, instance_entry, op_context, traj_pool_manager, logger,
+        problem_description=problem_description,
+    )
 
     # Filter 算子不触发 PerfAgent，直接返回
     if step.is_filter or not op_results:
@@ -297,19 +320,19 @@ def execute_iteration(
         execute_single_run(
             op_result=op_result,
             label=label,
-            instance=instance,
-            instance_name=instance_name,
+            task_data_path=task_data_path,
+            instance_name=instance_id,
+            problem_description=problem_description,
             se_cfg=se_cfg,
             step=step,
             traj_pool_manager=traj_pool_manager,
             local_memory_text=local_memory_text,
             global_memory=global_memory,
-            default_lang=default_lang,
-            default_target=default_target,
             output_dir=output_dir,
             iteration_idx=iteration_idx,
             mode=mode,
             logger=logger,
+            task_runner=task_runner,
         )
         iteration_idx += 1
 

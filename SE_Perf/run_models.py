@@ -23,41 +23,41 @@ class TrajectoryData:
         instance_name: 实例名称。
         problem_description: 问题描述文本。
         trajectory_content: 优化轨迹内容（.tra 格式文本）。
-        patch_content: 优化后的代码。
+        solution: 优化后的解（代码或答案）。
+        metric: 标量指标（越低越好）。
+        artifacts: 任务特定上下文（可选）。
         iteration: 迭代编号。
-        performance: 最终性能值。
         source_dir: 源输出目录。
         source_entry_labels: 来源轨迹标签列表。
         operator_name: 产生此轨迹的算子名称。
-        perf_metrics: 性能指标字典。
     """
 
     label: str = ""
     instance_name: str = ""
     problem_description: str = ""
     trajectory_content: str = ""
-    patch_content: str = ""
+    solution: str = ""
+    metric: float | str | None = None
+    artifacts: dict[str, Any] = field(default_factory=dict)
     iteration: int = 0
-    performance: float | str | None = None
     source_dir: str = ""
     source_entry_labels: list[str] = field(default_factory=list)
     operator_name: str | None = None
-    perf_metrics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """转换为 dict，兼容 traj_pool_manager 接口。"""
+        """转换为 dict，供 traj_pool_manager 接口使用。"""
         return {
             "label": self.label,
             "instance_name": self.instance_name,
             "problem_description": self.problem_description,
             "trajectory_content": self.trajectory_content,
-            "patch_content": self.patch_content,
+            "solution": self.solution,
+            "metric": self.metric,
+            "artifacts": dict(self.artifacts),
             "iteration": self.iteration,
-            "performance": self.performance,
             "source_dir": self.source_dir,
             "source_entry_labels": list(self.source_entry_labels),
             "operator_name": self.operator_name,
-            "perf_metrics": dict(self.perf_metrics),
         }
 
 
@@ -99,22 +99,22 @@ class PredictionEntry:
     替代 ``write_iteration_preds_from_result()`` 中手动构建的预测 dict。
 
     Attributes:
-        code: 优化后的代码。
-        passed: 是否通过（性能非 inf）。
-        performance: 最终性能值。
-        final_metrics: 性能指标字典。
+        solution: 优化后的解（代码或答案）。
+        metric: 标量指标（越低越好）。
+        success: 是否成功（由 TaskRunner 定义）。
+        artifacts: 任务特定上下文。
     """
 
-    code: str = ""
-    passed: bool = False
-    performance: float | str | None = None
-    final_metrics: dict[str, Any] = field(default_factory=dict)
+    solution: str = ""
+    metric: float | str | None = None
+    success: bool = False
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """转换为 dict，用于 JSON 序列化。"""
         return {
-            "code": self.code,
-            "passed": self.passed,
-            "performance": self.performance,
-            "final_metrics": dict(self.final_metrics),
+            "solution": self.solution,
+            "metric": self.metric,
+            "success": self.success,
+            "artifacts": dict(self.artifacts),
         }

@@ -29,6 +29,8 @@ class ReflectionRefineOperator(BaseOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的反思与改进。"""
         if not isinstance(instance_entry, dict):
@@ -56,7 +58,7 @@ class ReflectionRefineOperator(BaseOperator):
         if not src_summary:
             src_summary = self._format_entry(instance_entry)
 
-        if not instance_entry.get("problem") or not src_summary:
+        if not problem_description or not src_summary:
             return OperatorResult(source_labels=used_labels)
 
         content = self._build_additional_requirements(src_summary)

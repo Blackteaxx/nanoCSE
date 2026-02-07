@@ -32,6 +32,8 @@ class FilterTrajectoriesOperator(BaseOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
         traj_pool_manager: TrajPoolManager | None = None,
     ) -> OperatorResult:
         """处理单个实例的轨迹过滤。
@@ -134,9 +136,9 @@ class FilterTrajectoriesOperator(BaseOperator):
         candidates: list[dict[str, Any]] = []
         for l in inst_labels:
             sub = entry.get(l) if isinstance(entry, dict) else None
-            code_text = sub.get("code", "") if isinstance(sub, dict) else ""
+            code_text = sub.get("solution", "") if isinstance(sub, dict) else ""
 
-            perf_val = sub.get("performance", "") if isinstance(sub, dict) else ""
+            perf_val = sub.get("metric", "") if isinstance(sub, dict) else ""
             try:
                 perf_num = float(perf_val) if perf_val is not None else None
             except Exception:

@@ -28,12 +28,14 @@ class TrajectoryAnalyzerOperator(TemplateOperator):
         step_config: StepConfig,
         instance_name: str,
         instance_entry: dict[str, Any],
+        *,
+        problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的轨迹分析。"""
         if not isinstance(instance_entry, dict):
             return OperatorResult()
 
-        problem_statement = instance_entry.get("problem")
+        problem_statement = problem_description
         snapshot = self._format_entry(instance_entry)
 
         if not problem_statement or not snapshot:
