@@ -7,11 +7,10 @@ Trajectory Analyzer Operator
 """
 
 import textwrap
-from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import OperatorResult, TemplateOperator
+from operators.base import InstanceTrajectories, OperatorResult, TemplateOperator
 
 
 class TrajectoryAnalyzerOperator(TemplateOperator):
@@ -27,12 +26,12 @@ class TrajectoryAnalyzerOperator(TemplateOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的轨迹分析。"""
-        if not isinstance(instance_entry, dict):
+        if not instance_entry.trajectories:
             return OperatorResult()
 
         problem_statement = problem_description

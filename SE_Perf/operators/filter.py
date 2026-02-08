@@ -12,7 +12,7 @@ from typing import Any
 from core.utils.traj_pool_manager import TrajPoolManager
 from perf_config import StepConfig
 
-from operators.base import BaseOperator, OperatorResult
+from operators.base import BaseOperator, InstanceTrajectories, OperatorResult
 
 
 class FilterTrajectoriesOperator(BaseOperator):
@@ -31,7 +31,7 @@ class FilterTrajectoriesOperator(BaseOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
         traj_pool_manager: TrajPoolManager | None = None,
@@ -44,13 +44,13 @@ class FilterTrajectoriesOperator(BaseOperator):
         Args:
             step_config: 步骤配置（StepConfig 对象）。
             instance_name: 实例名称。
-            instance_entry: 该实例在轨迹池中的数据字典。
+            instance_entry: 该实例在轨迹池中的结构化数据。
             traj_pool_manager: 轨迹池管理器（用于执行 relabel/delete 操作）。
 
         Returns:
             空 OperatorResult。
         """
-        if not isinstance(instance_entry, dict):
+        if not instance_entry.trajectories:
             return OperatorResult()
 
         input_labels = [item.get("label") for item in (step_config.inputs or []) if item.get("label")]
@@ -66,14 +66,8 @@ class FilterTrajectoriesOperator(BaseOperator):
 
         # 提取实例的标签
         inst_labels: list[str] = []
-        for k, v in instance_entry.items():
-            if k == "problem":
-                continue
-            if isinstance(v, dict):
-                if v.get("label"):
-                    inst_labels.append(str(v.get("label")))
-                else:
-                    inst_labels.append(str(k))
+        for subkey, traj in instance_entry.trajectories.items():
+            inst_labels.append(traj.label if traj.label else subkey)
 
         if input_labels:
             inst_labels = [l for l in inst_labels if l in input_labels]
@@ -106,7 +100,6 @@ class FilterTrajectoriesOperator(BaseOperator):
                     traj_pool_manager.relabel(
                         old,
                         new,
-                        instance_name=instance_name,
                         operator_name=self.get_name(),
                         delete_old=False,
                     )
@@ -116,14 +109,14 @@ class FilterTrajectoriesOperator(BaseOperator):
             has_relabel_strategy = bool(relabel_as) or bool(relabel_map)
             if deleted and not has_relabel_strategy:
                 try:
-                    traj_pool_manager.delete_trajectories(deleted, instance_name=instance_name)
+                    traj_pool_manager.delete_trajectories(deleted)
                 except Exception:
                     pass
 
         return OperatorResult()
 
     def _calculate_kept_and_deleted_labels(
-        self, inst_labels: list[str], entry: dict[str, Any], top_k: int | None = None
+        self, inst_labels: list[str], entry: InstanceTrajectories, top_k: int | None = None
     ) -> tuple[list[str], list[str]]:
         n = len(inst_labels)
         self.logger.info(f"开始过滤轨迹，共 {n} 个标签，top_k={top_k}")
@@ -134,19 +127,15 @@ class FilterTrajectoriesOperator(BaseOperator):
         k = max(0, int(top_k))
 
         candidates: list[dict[str, Any]] = []
-        for l in inst_labels:
-            sub = entry.get(l) if isinstance(entry, dict) else None
-            code_text = sub.get("solution", "") if isinstance(sub, dict) else ""
+        for label in inst_labels:
+            traj = entry.trajectories.get(label)
+            code_text = traj.solution if traj is not None else ""
+            perf_num = traj.metric if traj is not None else None
 
-            perf_val = sub.get("metric", "") if isinstance(sub, dict) else ""
-            try:
-                perf_num = float(perf_val) if perf_val is not None else None
-            except Exception:
-                perf_num = None
             score = 0.0
             if perf_num is not None and math.isfinite(perf_num) and perf_num > 0.0:
                 score = 1.0 / perf_num
-            candidates.append({"label": l, "text": code_text or "", "score": float(score)})
+            candidates.append({"label": label, "text": code_text or "", "score": float(score)})
 
         if n <= k:
             kept_labels = [c["label"] for c in sorted(candidates, key=lambda x: x["score"], reverse=True)]

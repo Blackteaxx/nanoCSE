@@ -165,6 +165,7 @@ def default_config(temp_dir):
 
     cfg = PerfAgentConfig(max_iterations=2)
     cfg.logging.trajectory_dir = temp_dir / "trajectories"
+    cfg.logging.log_dir = temp_dir / "logs"
     return cfg
 
 

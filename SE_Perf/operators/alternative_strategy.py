@@ -7,11 +7,10 @@ Alternative Strategy Operator
 """
 
 import textwrap
-from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import BaseOperator, OperatorResult
+from operators.base import BaseOperator, InstanceTrajectories, OperatorResult
 
 
 class AlternativeStrategyOperator(BaseOperator):
@@ -28,13 +27,11 @@ class AlternativeStrategyOperator(BaseOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的替代策略生成。"""
-        if not isinstance(instance_entry, dict):
-            return OperatorResult()
 
         previous_approach_summary = None
         used_labels: list[str] = []
@@ -42,17 +39,17 @@ class AlternativeStrategyOperator(BaseOperator):
         # 使用统一方法选择源标签（required_n=1）；若无则回退到全体加权采样
         chosen = self._select_source_labels(instance_entry, step_config, required_n=1)
         if chosen:
-            sub = instance_entry.get(chosen[0])
-            if isinstance(sub, dict):
-                previous_approach_summary = self._format_entry({str(chosen[0]): sub})
-                used_labels = [str(chosen[0])]
+            traj = instance_entry.trajectories.get(chosen[0])
+            if traj is not None:
+                previous_approach_summary = self._format_entry(InstanceTrajectories(trajectories={chosen[0]: traj}))
+                used_labels = [chosen[0]]
         else:
             src_keys = self._weighted_select_labels(instance_entry, k=1)
             if src_keys:
-                sub = instance_entry.get(src_keys[0])
-                if isinstance(sub, dict):
-                    previous_approach_summary = self._format_entry({str(src_keys[0]): sub})
-                    used_labels = [str(src_keys[0])]
+                traj = instance_entry.trajectories.get(src_keys[0])
+                if traj is not None:
+                    previous_approach_summary = self._format_entry(InstanceTrajectories(trajectories={src_keys[0]: traj}))
+                    used_labels = [src_keys[0]]
 
         if not previous_approach_summary:
             previous_approach_summary = self._format_entry(instance_entry)

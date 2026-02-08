@@ -139,7 +139,8 @@ def main():
         traj_pool_path = str(Path(output_dir) / "traj.pool")
         traj_pool_manager = TrajPoolManager(
             traj_pool_path,
-            llm_client,
+            instance_name=instance_name,
+            llm_client=llm_client,
             memory_manager=local_memory,
             prompt_config=se_cfg.prompt_config.to_dict(),
         )

@@ -28,6 +28,7 @@ class TestPerfAgent:
             task_config={"language": "python3"},
         )
         cfg.logging.trajectory_dir = temp_dir
+        cfg.logging.log_dir = temp_dir
         return cfg
 
     @pytest.fixture
@@ -107,7 +108,7 @@ if __name__ == "__main__":
         # 没有 evaluator 和 test_cases，应返回默认失败结构
         metric, artifacts = runner.evaluate(code, inst, None)
         assert isinstance(metric, float)
-        assert "problem_description" in artifacts
+        assert "problem_description" not in artifacts  # problem_description 不再放入 artifacts
 
     def test_extract_diff_from_response(self, runner):
         """测试从响应中提取 diff（通过 EffiBenchRunner）"""

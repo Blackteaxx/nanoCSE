@@ -155,15 +155,14 @@ class AgentResult:
     - ``metric`` 语义统一为 **越低越好**（lower is better）。
       若某任务的原始指标是越高越好（如 pass rate），应在 TaskRunner
       中取反后再写入此字段。
-    - ``artifacts`` 必须包含 ``"problem_description"`` 键，
-      SE_Perf 层统一从此处获取问题描述（用于全局记忆检索、算子 prompt 等）。
+    - ``problem_description`` 由 ``TaskMetadata`` 提供，不存储在此对象中。
 
     Attributes:
         instance_id: 任务实例唯一标识
         success: 是否成功（由 TaskRunner 定义成功标准）
         solution: 解（代码文本、数学答案等）
         metric: 标量性能指标（越低越好）
-        artifacts: 任务特定的上下文字典；必须包含 "problem_description" 键
+        artifacts: 任务特定的上下文字典（评估元信息等）
         total_iterations: 总迭代次数
         trajectory_file: 轨迹文件路径（可选）
         error: 错误信息（如果执行失败）
@@ -177,16 +176,6 @@ class AgentResult:
     total_iterations: int = 0
     trajectory_file: str | None = None
     error: str | None = None
-
-    def __post_init__(self) -> None:
-        # 确保 artifacts 中包含 problem_description 键
-        if "problem_description" not in self.artifacts:
-            self.artifacts.setdefault("problem_description", "")
-
-    @property
-    def problem_description(self) -> str:
-        """从 artifacts 中获取问题描述的便捷属性"""
-        return self.artifacts.get("problem_description", "")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -202,12 +191,14 @@ class AgentResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentResult":
+        artifacts = dict(data.get("artifacts", {}))
+        artifacts.pop("problem_description", None)  # 清理残留
         return cls(
             instance_id=data.get("instance_id", "unknown"),
             success=data.get("success", False),
             solution=data.get("solution", ""),
             metric=_safe_float(data.get("metric", float("inf"))),
-            artifacts=data.get("artifacts", {}),
+            artifacts=artifacts,
             total_iterations=data.get("total_iterations", 0),
             trajectory_file=data.get("trajectory_file"),
             error=data.get("error"),
@@ -218,7 +209,6 @@ class AgentResult:
         cls,
         instance_id: str,
         error: str,
-        problem_description: str = "",
     ) -> "AgentResult":
         """从错误创建失败结果"""
         return cls(
@@ -226,7 +216,7 @@ class AgentResult:
             success=False,
             solution="",
             metric=float("inf"),
-            artifacts={"problem_description": problem_description},
+            artifacts={},
             error=error,
         )
 

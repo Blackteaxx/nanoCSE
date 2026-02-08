@@ -58,7 +58,7 @@ if __name__ == "__main__":
         cfg = PerfAgentConfig(
             max_iterations=2,  # 减少迭代次数以加快测试
             model=ModelConfig(name="gpt-4", temperature=0.1),
-            logging=LoggingConfig(trajectory_dir=temp_dir / "trajectories"),
+            logging=LoggingConfig(trajectory_dir=temp_dir / "trajectories", log_dir=temp_dir / "logs"),
             prompts=PromptConfig(
                 system_template=TEST_SYSTEM_TEMPLATE,
                 optimization_template=TEST_OPTIMIZATION_TEMPLATE,
@@ -208,7 +208,7 @@ max_iterations: 2
         code = "def efficient_sum(n):\n    return n * (n - 1) // 2\n"
         metric, artifacts = runner.evaluate(code, inst, config)
         assert isinstance(metric, float)
-        assert "problem_description" in artifacts
+        assert "problem_description" not in artifacts  # problem_description 不再放入 artifacts
 
     def test_trajectory_completeness(self, config, test_instance_file, temp_dir, fake_llm):
         """测试轨迹完整性"""

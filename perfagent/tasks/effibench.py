@@ -8,7 +8,7 @@ EffiBench TaskRunner 实现
 - EffiBenchXInstance 数据类从 agent.py 迁移至此，agent.py 通过 re-export 保持向后兼容。
 - EffiBenchRunner 实现 BaseTaskRunner 的全部抽象方法。
 - evaluate() 返回 (metric, artifacts)，其中 metric 为优化目标值（越低越好），
-  artifacts 包含 "problem_description" 及评估结果详情。
+  artifacts 包含评估结果详情（problem_description 由 TaskMetadata 提供）。
 - EffiBenchTaskConfig 封装所有 EffiBench 特定配置，从 PerfAgentConfig.task_config 解析。
 """
 
@@ -268,7 +268,7 @@ class EffiBenchRunner(BaseTaskRunner):
         Returns:
             (metric, artifacts) 元组:
             - metric: 优化目标值（runtime/memory/integral），越低越好
-            - artifacts: 包含 problem_description、benchmark_results 等
+            - artifacts: 包含 benchmark_results 等评估详情
         """
         instance: EffiBenchXInstance = instance_data
         language = self._task_config.language
@@ -297,7 +297,6 @@ class EffiBenchRunner(BaseTaskRunner):
         )
 
         artifacts: dict[str, Any] = {
-            "problem_description": instance.description_md,
             "language": language,
             "optimization_target": target,
             "performance_unit": unit,

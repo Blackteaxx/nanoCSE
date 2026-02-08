@@ -79,8 +79,15 @@ class PerfAgentConfig:
     task_config: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        """初始化后处理：验证参数并确保目录存在"""
+        """初始化后处理：验证参数"""
         self._validate_config()
+
+    def ensure_dirs(self) -> None:
+        """按需创建日志和轨迹目录。
+
+        不在 __post_init__ 中自动调用，避免仅实例化配置对象（如测试、序列化）
+        时在项目根目录留下空目录。调用方在真正需要写入文件前调用此方法。
+        """
         self.logging.trajectory_dir.mkdir(parents=True, exist_ok=True)
         self.logging.log_dir.mkdir(parents=True, exist_ok=True)
 

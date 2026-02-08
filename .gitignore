@@ -33,6 +33,10 @@ out/
 .vuepress/dist
 trajectories/*
 !trajectories/demonstrations
+# 运行时自动生成的日志/轨迹目录（perfagent 默认路径）
+perfagent/logs/
+perfagent/trajectories/
+logs/
 gyf/
 swe_reports/
 swe_report/
@@ -124,3 +128,4 @@ report/*
 data/*
 output/*
 instances/livecodebench/
+configs_personal/

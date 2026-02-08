@@ -7,13 +7,12 @@ Trajectory Pool Summary Operator
 生成新的附加需求文本，用于下一次迭代评估。
 """
 
-import json
 import textwrap
 from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import OperatorResult, TemplateOperator
+from operators.base import InstanceTrajectories, TrajectoryItem, OperatorResult, TemplateOperator
 
 
 class TrajPoolSummaryOperator(TemplateOperator):
@@ -31,27 +30,25 @@ class TrajPoolSummaryOperator(TemplateOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的轨迹池总结。"""
-        if not isinstance(instance_entry, dict):
+        if not instance_entry.trajectories:
             return OperatorResult()
 
         problem_statement = problem_description
-        approaches_data = {k: v for k, v in instance_entry.items() if k != "problem" and isinstance(v, dict)}
-
-        if not problem_statement or not approaches_data:
+        if not problem_statement:
             return OperatorResult()
 
-        content = self._build_additional_requirements(str(problem_statement), approaches_data)
+        content = self._build_additional_requirements(str(problem_statement), instance_entry.trajectories)
         if not content:
             return OperatorResult()
 
         return OperatorResult(additional_requirements=content)
 
-    def _format_approaches_data(self, approaches_data: dict[str, Any]) -> str:
+    def _format_approaches_data(self, trajectories: dict[str, TrajectoryItem]) -> str:
         """格式化历史尝试数据为通用的嵌套文本结构。"""
 
         def _fmt(value: Any, indent: int) -> str:
@@ -110,18 +107,15 @@ class TrajPoolSummaryOperator(TemplateOperator):
             return f"{prefix}{str(value)}"
 
         parts: list[str] = []
-        for key, data in approaches_data.items():
-            if key == "problem":
-                continue
-            if isinstance(data, dict):
-                parts.append(f"ATTEMPT {key}:")
-                body = _fmt(data, 0)
-                if body:
-                    parts.append(body)
+        for key, traj in trajectories.items():
+            parts.append(f"ATTEMPT {key}:")
+            body = _fmt(traj.to_dict(), 0)
+            if body:
+                parts.append(body)
         return "\n".join(parts)
 
-    def _build_additional_requirements(self, problem_statement: str, approaches_data: dict[str, Any]) -> str:
-        formatted_attempts = self._format_approaches_data(approaches_data)
+    def _build_additional_requirements(self, problem_statement: str, trajectories: dict[str, TrajectoryItem]) -> str:
+        formatted_attempts = self._format_approaches_data(trajectories)
         pcfg = self.context.prompt_config or {}
         opcfg = pcfg.get("traj_pool_summary", {}) if isinstance(pcfg, dict) else {}
         header = str(

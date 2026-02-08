@@ -269,27 +269,39 @@ class TrajectoryProcessor:
             "failed_instances": [],
         }
 
-        # 遍历所有实例目录
+        # 收集需要处理的 (traj_file, 所在目录, 实例名) 列表
+        traj_entries: list[tuple[Path, Path, str]] = []
+
+        # 1) 先检查 iteration_dir 下直接存在的 .traj 文件（单实例扁平模式）
+        direct_traj_files = list(iteration_dir.glob("*.traj"))
+        for traj_file in direct_traj_files:
+            traj_entries.append((traj_file, iteration_dir, traj_file.stem))
+
+        # 2) 再遍历子目录中的 .traj 文件（多实例 / 旧目录结构兼容）
         for instance_dir in iteration_dir.iterdir():
             if not instance_dir.is_dir() or instance_dir.name.startswith("."):
                 continue
+            for traj_file in instance_dir.glob("*.traj"):
+                traj_entries.append((traj_file, instance_dir, instance_dir.name))
 
-            # 查找.traj文件
-            traj_files = list(instance_dir.glob("*.traj"))
-            if not traj_files:
-                self.logger.debug(f"实例 {instance_dir.name} 没有.traj文件")
-                continue
+        if not traj_entries:
+            self.logger.debug(f"迭代目录 {iteration_dir.name} 中没有 .traj 文件")
 
+        # 按实例名分组处理
+        instances_map: dict[str, list[tuple[Path, Path]]] = {}
+        for traj_file, parent_dir, inst_name in traj_entries:
+            instances_map.setdefault(inst_name, []).append((traj_file, parent_dir))
+
+        for inst_name, file_list in instances_map.items():
             instance_stats = {
-                "instance_name": instance_dir.name,
+                "instance_name": inst_name,
                 "tra_files_created": [],
                 "total_tokens": 0,
                 "total_history_items": 0,
             }
 
-            # 处理每个.traj文件
-            for traj_file in traj_files:
-                tra_file = instance_dir / (traj_file.stem + ".tra")
+            for traj_file, parent_dir in file_list:
+                tra_file = parent_dir / (traj_file.stem + ".tra")
 
                 # 生成.tra文件
                 file_stats = self._create_tra_from_traj(traj_file, tra_file)
@@ -309,7 +321,6 @@ class TrajectoryProcessor:
                     instance_stats["total_tokens"] += file_stats["total_tokens"]
                     instance_stats["total_history_items"] += file_stats["history_items"]
 
-                    # 更详细的日志记录，包含节省信息
                     self.logger.info(
                         f"已创建 {tra_file.name}: {file_stats['history_items']} 历史项, "
                         f"{file_stats['total_tokens']} tokens "
@@ -320,7 +331,7 @@ class TrajectoryProcessor:
                 else:
                     processing_stats["failed_instances"].append(
                         {
-                            "instance_name": instance_dir.name,
+                            "instance_name": inst_name,
                             "traj_file": traj_file.name,
                             "reason": "No valid history items",
                         }
@@ -332,7 +343,7 @@ class TrajectoryProcessor:
                 processing_stats["total_tra_files"] += len(instance_stats["tra_files_created"])
 
                 self.logger.info(
-                    f"实例 {instance_dir.name}: 创建了 {len(instance_stats['tra_files_created'])} 个.tra文件"
+                    f"实例 {inst_name}: 创建了 {len(instance_stats['tra_files_created'])} 个.tra文件"
                 )
 
         # 记录处理结果

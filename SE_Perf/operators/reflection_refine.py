@@ -7,11 +7,10 @@ Reflection and Refine Operator
 """
 
 import textwrap
-from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import BaseOperator, OperatorResult
+from operators.base import BaseOperator, InstanceTrajectories, OperatorResult
 
 
 class ReflectionRefineOperator(BaseOperator):
@@ -28,41 +27,60 @@ class ReflectionRefineOperator(BaseOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> OperatorResult:
         """处理单个实例的反思与改进。"""
-        if not isinstance(instance_entry, dict):
-            return OperatorResult()
 
         src_summary = None
         used_labels: list[str] = []
 
+        self.logger.info(f" reflection_refine 算子: 开始处理 instance={instance_name}, has_problem_description={bool(problem_description)}")
+
         # 若未提供输入标签，进行线性加权采样选择源轨迹
         chosen = self._select_source_labels(instance_entry, step_config, required_n=1)
+        self.logger.info(f" reflection_refine 算子: chosen labels={chosen}")
+
         if chosen:
-            sub = instance_entry.get(chosen[0])
-            if isinstance(sub, dict):
-                src_summary = self._format_entry({str(chosen[0]): sub})
-                used_labels = [str(chosen[0])]
+            traj = instance_entry.trajectories.get(chosen[0])
+            if traj is not None:
+                src_summary = self._format_entry(InstanceTrajectories(trajectories={chosen[0]: traj}))
+                used_labels = [chosen[0]]
+                self.logger.info(f" reflection_refine: 从 chosen 选择了轨迹，生成摘要")
+            else:
+                self.logger.warning(f" reflection_refine: chosen[0] 在 instance_entry 中不存在")
         else:
+            self.logger.info(f" reflection_refine: 没有 chosen，进行加权采样")
             keys = self._weighted_select_labels(instance_entry, k=1)
+            self.logger.info(f" reflection_refine: 加权采样得到 keys={keys}")
             if keys:
-                sub = instance_entry.get(keys[0])
-                if isinstance(sub, dict):
-                    src_summary = self._format_entry({str(keys[0]): sub})
-                    used_labels = [str(keys[0])]
+                traj = instance_entry.trajectories.get(keys[0])
+                if traj is not None:
+                    src_summary = self._format_entry(InstanceTrajectories(trajectories={keys[0]: traj}))
+                    used_labels = [keys[0]]
+                    self.logger.info(f" reflection_refine: 从采样选择轨迹，生成摘要")
+                else:
+                    self.logger.warning(f" reflection_refine: keys[0] 在 instance_entry 中不存在")
+            else:
+                self.logger.warning(f" reflection_refine: 加权采样没有得到任何键")
 
         # 最后回退：使用最新条目摘要
         if not src_summary:
+            self.logger.info(f" reflection_refine: src_summary 仍为空，使用整个 instance_entry 作为回退")
             src_summary = self._format_entry(instance_entry)
 
+        self.logger.info(f" reflection_refine: has_problem_description={bool(problem_description)}, has_src_summary={bool(src_summary)}")
+
         if not problem_description or not src_summary:
+            self.logger.warning(f" reflection_refine: 缺少必要信息，无法构建 additional_requirements")
             return OperatorResult(source_labels=used_labels)
 
         content = self._build_additional_requirements(src_summary)
+        self.logger.info(f" reflection_refine: 构建的 additional_requirements 长度={len(content) if content else 0}")
+
         if not content:
+            self.logger.warning(f" reflection_refine: _build_additional_requirements 返回空字符串")
             return OperatorResult(source_labels=used_labels)
 
         return OperatorResult(

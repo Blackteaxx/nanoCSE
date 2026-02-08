@@ -9,7 +9,6 @@ from __future__ import annotations
 import copy
 import os
 from pathlib import Path
-from typing import Any
 
 from core.utils.global_memory_manager import GlobalMemoryManager
 from core.utils.local_memory_manager import LocalMemoryManager
@@ -90,7 +89,6 @@ def run_single_perfagent(
         return AgentResult.from_error(
             instance_id=instance_id,
             error=str(e),
-            problem_description=problem_description or "",
         )
 
 
@@ -102,7 +100,7 @@ def run_single_perfagent(
 def run_operator(
     step: StepConfig,
     instance_name: str,
-    instance_entry: InstanceTrajectories | dict[str, Any],
+    instance_entry: InstanceTrajectories,
     op_context: OperatorContext,
     traj_pool_manager: TrajPoolManager,
     logger,
@@ -138,11 +136,18 @@ def run_operator(
             step, instance_name, instance_entry,
             problem_description=problem_description,
         )
+        
+        # 记录算子返回结果的详细信息
         if isinstance(result, list):
+            logger.info(f"算子 {step.operator} 返回了 {len(result)} 个结果")
+            for i, r in enumerate(result):
+                logger.info(f"  结果{i}: has_additional_requirements={bool(r.additional_requirements)}, source_labels={r.source_labels}")
             return result  # Plan 算子返回 list[OperatorResult]
-        return [result]
+        else:
+            logger.info(f"算子 {step.operator} 返回了单个结果: has_additional_requirements={bool(result.additional_requirements)}, source_labels={result.source_labels}")
+            return [result]
     except Exception as e:
-        logger.error(f"算子 '{step.operator}' 执行失败: {e}")
+        logger.error(f"算子 '{step.operator}' 执行失败: {e}", exc_info=True)
         return [OperatorResult()]
 
 
@@ -186,7 +191,8 @@ def execute_single_run(
 ) -> None:
     """执行单次 PerfAgent 运行并后处理。"""
     iter_dir = Path(output_dir) / f"iteration_{iteration_idx}"
-    instance_output_dir = iter_dir / instance_name
+    # 单实例模式：文件直接放在 iteration 目录下，不再嵌套 instance_name 子目录
+    instance_output_dir = iter_dir
 
     # 检索 Global Memory
     global_memory_text = retrieve_global_memory(
@@ -233,10 +239,6 @@ def execute_single_run(
 
     # 后处理：更新轨迹池
     if result.success or result.error is None:
-        source_labels_map = (
-            {instance_name: op_result.source_labels} if op_result.source_labels else None
-        )
-        result_problem = result.problem_description or problem_description or ""
         process_and_summarize(
             iter_dir,
             iteration_idx,
@@ -245,20 +247,20 @@ def execute_single_run(
             traj_pool_manager,
             logger,
             label_prefix=label,
-            source_labels_map=source_labels_map,
+            source_labels=op_result.source_labels or None,
             operator_name=step.operator,
             result=result,
             instance_name=instance_name,
-            problem_description=result_problem,
+            problem_description=problem_description or "",
         )
 
-    if op_result.source_labels:
-        logger.info(
-            f"算子 {step.operator} 执行完成: "
-            f"has_additional_requirements={bool(op_result.additional_requirements)}, "
-            f"has_initial_solution={bool(op_result.initial_solution)}, "
-            f"source_labels={op_result.source_labels}"
-        )
+    # 始终记录算子执行结果（无论 source_labels 是否为空）
+    logger.info(
+        f"算子 {step.operator} 执行完成: "
+        f"has_additional_requirements={bool(op_result.additional_requirements)}, "
+        f"has_initial_solution={bool(op_result.initial_solution)}, "
+        f"source_labels={op_result.source_labels}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +296,8 @@ def execute_iteration(
     except Exception:
         pass
 
-    # 获取当前实例在轨迹池中的条目
-    raw_entry = traj_pool_manager.get_instance(instance_id) or {}
+    # 获取当前轨迹池数据（单实例，扁平结构）
+    raw_entry = traj_pool_manager.load_pool()
     instance_entry = InstanceTrajectories.from_dict(raw_entry)
 
     # 构建算子上下文

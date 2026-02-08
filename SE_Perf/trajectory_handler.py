@@ -15,7 +15,6 @@ from core.utils.se_logger import get_se_logger
 from core.utils.traj_pool_manager import TrajPoolManager
 from core.utils.trajectory_processor import TrajectoryProcessor
 from perf_config import SEPerfRunSEConfig, StepConfig
-from run_helpers import extract_optimization_info
 from run_models import TrajectoryData
 
 from perfagent.protocols import AgentResult
@@ -88,7 +87,7 @@ def update_pool_from_result(
         traj_pool_manager.prompt_config = se_cfg.prompt_config.to_dict()
 
         label = str(label_prefix) if label_prefix else f"iter{iteration_index}"
-        problem_text = problem_description or result.problem_description or ""
+        problem_text = problem_description or ""
         traj_data = build_trajectory_from_result(
             result=result,
             instance_name=instance_name,
@@ -100,7 +99,7 @@ def update_pool_from_result(
             output_dir=output_dir or Path("."),
         )
 
-        traj_pool_manager.summarize_and_add_trajectories([traj_data.to_dict()])
+        traj_pool_manager.summarize_and_add_trajectory(traj_data.to_dict())
 
         pool_stats = traj_pool_manager.get_pool_stats()
         run_logger.info(f"轨迹池更新完毕（直接模式）: 当前共 {pool_stats.get('total_trajectories', 'unknown')} 条轨迹")
@@ -121,7 +120,7 @@ def process_and_summarize(
     pool_manager: TrajPoolManager,
     run_logger,
     label_prefix: str | None = None,
-    source_labels_map: dict[str, list[str]] | None = None,
+    source_labels: list[str] | None = None,
     operator_name: str | None = None,
     result: AgentResult | None = None,
     instance_name: str = "",
@@ -136,20 +135,7 @@ def process_and_summarize(
         if not tra_stats or tra_stats.get("total_tra_files", 0) <= 0:
             run_logger.warning(f"迭代 {iter_idx} 未生成 .tra 文件")
 
-        # 准备 optimization info for prompt config
-        perf_cfg_path = step.perf_base_config or se_cfg.base_config
-        opt_target, lang_val = extract_optimization_info(perf_cfg_path)
-        if opt_target or lang_val:
-            scfg = se_cfg.prompt_config.summarizer
-            if opt_target:
-                scfg["optimization_target"] = opt_target
-            if lang_val:
-                scfg["language"] = lang_val
-
         # 直接从 AgentResult 更新轨迹池
-        source_labels = None
-        if source_labels_map and isinstance(source_labels_map, dict):
-            source_labels = source_labels_map.get(instance_name)
         if result is not None:
             update_pool_from_result(
                 result=result,
@@ -162,7 +148,8 @@ def process_and_summarize(
                 label_prefix=label_prefix,
                 source_labels=source_labels,
                 operator_name=operator_name,
-                output_dir=iter_dir / instance_name,
+                # 单实例模式：文件直接在 iter_dir 下，不再嵌套 instance_name 子目录
+                output_dir=iter_dir,
             )
 
         # 保存记忆快照

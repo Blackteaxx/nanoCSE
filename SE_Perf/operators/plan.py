@@ -16,7 +16,7 @@ from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import OperatorResult, TemplateOperator
+from operators.base import InstanceTrajectories, OperatorResult, TemplateOperator
 
 from .registry import register_operator
 
@@ -34,7 +34,7 @@ class PlanOperator(TemplateOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> list[OperatorResult]:

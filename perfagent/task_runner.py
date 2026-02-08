@@ -10,7 +10,7 @@ BaseTaskRunner 抽象接口
 - ``load_metadata`` 为类方法，可在不实例化 TaskRunner 的情况下提取最小元数据，
   供 SE_Perf 层在首次调用 Agent 之前使用。
 - ``evaluate`` 返回 ``(metric, artifacts)``，其中 metric 统一为越低越好（lower is better），
-  artifacts 必须包含 ``"problem_description"`` 键。
+  artifacts 包含评估补充信息（problem_description 由 TaskMetadata 提供）。
 """
 
 from __future__ import annotations

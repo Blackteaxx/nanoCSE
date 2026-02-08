@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import abc
 import random
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -76,8 +75,7 @@ class TrajectoryItem:
 class InstanceTrajectories:
     """实例在轨迹池中的所有轨迹数据（结构化）。
 
-    既提供类型安全的属性访问，也兼容 dict 风格的 get/items 操作
-    以便算子代码平滑迁移。
+    提供类型安全的属性访问，所有算子通过 `.trajectories` 直接操作。
 
     Attributes:
         problem: 问题描述文本（来自轨迹池 "problem" 键）。
@@ -86,34 +84,6 @@ class InstanceTrajectories:
 
     problem: str = ""
     trajectories: dict[str, TrajectoryItem] = field(default_factory=dict)
-
-    # --- dict-compatible 接口（便于算子渐进迁移）---
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """dict 风格的 get：先检查 'problem'，然后在 trajectories 中查找。"""
-        if key == "problem":
-            return self.problem
-        traj = self.trajectories.get(key)
-        if traj is not None:
-            return traj.to_dict()
-        return default
-
-    def items(self):
-        """dict 风格的 items：返回 (key, value) 对，包括 'problem'。"""
-        yield "problem", self.problem
-        for k, v in self.trajectories.items():
-            yield k, v.to_dict()
-
-    def __getitem__(self, key: str) -> Any:
-        if key == "problem":
-            return self.problem
-        traj = self.trajectories.get(key)
-        if traj is not None:
-            return traj.to_dict()
-        raise KeyError(key)
-
-    def __contains__(self, key: str) -> bool:
-        return key == "problem" or key in self.trajectories
 
     def __bool__(self) -> bool:
         return bool(self.problem) or bool(self.trajectories)
@@ -244,124 +214,23 @@ class BaseOperator(abc.ABC):
         except Exception as e:
             self.logger.error(f"LLM API调用失败: {e}")
             return ""
-
-    def _extract_code_block_py(self, text: str) -> str | None:
-        """从LLM输出中提取 ```py ... ``` 代码块内容。"""
-        if not isinstance(text, str) or not text:
-            return None
-        pattern = re.compile(r"```(?:py|python)\s*\n(.*?)\n```", re.DOTALL | re.IGNORECASE)
-        m = pattern.search(text)
-        if m:
-            return m.group(1).strip() or None
-        return None
-
-    def _extract_code_text(self, text: str) -> str | None:
-        """优先提取代码块，否则返回原始文本并尝试清理。"""
-        if not isinstance(text, str) or not text.strip():
-            return None
-        block = self._extract_code_block_py(text)
-        if isinstance(block, str) and block.strip():
-            return block.strip()
-
-        raw_code = text.strip()
-        if raw_code.startswith("```") and raw_code.endswith("```"):
-            try:
-                raw_code = re.sub(r"^```(?:py|python)?\s*\n?", "", raw_code, flags=re.IGNORECASE)
-                raw_code = re.sub(r"\n?```$", "", raw_code)
-            except Exception:
-                pass
-        return raw_code.strip() or None
-
-    def _require_py_block_with_retry(
-        self,
-        build_prompt_fn,
-        max_retries: int = 2,
-        temperature_override: float | None = None,
-    ) -> str | None:
-        """要求LLM以```py代码块```输出，若未满足则重试。"""
-        self._setup_model()
-        model_cfg = self.context.model_config
-        base_temp = model_cfg.get("temperature", 0.3)
-        temp_to_use = base_temp if temperature_override is None else temperature_override
-
-        for attempt in range(max_retries + 1):
-            try:
-                prompt, system_prompt = build_prompt_fn(attempt)
-                pcfg = self.context.prompt_config or {}
-                common = pcfg.get("base_operator", {}) if isinstance(pcfg.get("base_operator"), dict) else {}
-                enforce_tail = common.get("enforce_tail")
-                if enforce_tail is None:
-                    enforce_tail = pcfg.get("operator_enforce_tail")
-                import_blocks = common.get("imports_block")
-                if import_blocks is None:
-                    import_blocks = pcfg.get("operator_imports_block")
-                optimization_target = common.get("optimization_target")
-                if optimization_target is None:
-                    optimization_target = pcfg.get("operator_optimization_target")
-                system_prompt_use = system_prompt or ""
-                if isinstance(enforce_tail, str) and enforce_tail.strip():
-                    system_prompt_use += enforce_tail
-                if isinstance(import_blocks, str) and import_blocks.strip():
-                    system_prompt_use += import_blocks
-                if isinstance(optimization_target, str) and optimization_target.strip():
-                    system_prompt_use += optimization_target
-
-                history = [{"role": "system", "content": system_prompt_use}, {"role": "user", "content": prompt}]
-                max_out = model_cfg.get("max_output_tokens")
-                enable_thinking = None if attempt == 0 else False
-
-                self.logger.info(f"第{attempt + 1}次尝试，温度={temp_to_use}")
-                self.logger.debug(f"LLM系统提示词(重试第{attempt + 1}次)")
-                self.logger.debug(f"LLM用户提示词(重试第{attempt + 1}次)")
-
-                message = self.llm_client.call_llm(
-                    history,
-                    temperature=temp_to_use,
-                    max_tokens=max_out,
-                    enable_thinking=enable_thinking,
-                    usage_context=f"operator.{self.get_name()}",
-                )
-                self.logger.debug(f"LLM原始响应(重试第{attempt + 1}次):\n{message}")
-                if message:
-                    message = self.llm_client.clean_think_tags(message)
-                # self.logger.debug(f"LLM清理后响应(重试第{attempt + 1}次):\n{message}")
-
-                code = self._extract_code_block_py(message or "")
-                if code:
-                    return code
-
-                self.logger.warning("未检测到```py代码块，进行重试")
-            except Exception as e:
-                self.logger.error(f"格式化代码块生成失败: {e}")
-                continue
-        return None
-
-    def _format_entry(self, approaches_data: dict[str, Any]) -> str:
-        return TrajPoolManager.format_entry(approaches_data)
+            
+    def _format_entry(self, entry: InstanceTrajectories) -> str:
+        return TrajPoolManager.format_entry(entry)
 
     def _weighted_select_labels(
-        self, entry: dict[str, Any], k: int = 1, allowed_labels: list[str] | None = None
+        self, entry: InstanceTrajectories, k: int = 1, allowed_labels: list[str] | None = None
     ) -> list[str]:
         """基于 performance 的线性加权采样选择子标签，performance 越低权重越高。
         若提供 allowed_labels，则仅在该集合中进行采样（忽略不存在的标签）。
         """
-        if not isinstance(entry, dict):
-            return []
         items: list[tuple[str, float]] = []
-        for subkey, subval in entry.items():
-            if subkey == "problem" or not isinstance(subval, dict):
-                continue
+        for subkey, traj in entry.trajectories.items():
             if allowed_labels is not None:
-                lab = str(subkey)
-                lab2 = str(subval.get("label")) if isinstance(subval.get("label"), str) else None
-                if lab not in allowed_labels and (lab2 is None or lab2 not in allowed_labels):
+                if subkey not in allowed_labels and (not traj.label or traj.label not in allowed_labels):
                     continue
-            perf = subval.get("metric")
-            try:
-                perf_val = float(perf) if perf is not None else 1.0
-            except Exception:
-                perf_val = 1.0
-            items.append((str(subkey), perf_val))
+            perf_val = traj.metric if traj.metric is not None else 1.0
+            items.append((subkey, perf_val))
         if not items:
             return []
         eps = 1e-9
@@ -387,35 +256,18 @@ class BaseOperator(abc.ABC):
         return selected
 
     def _random_select_labels(
-        self, entry: dict[str, Any], k: int = 1, allowed_labels: list[str] | None = None
+        self, entry: InstanceTrajectories, k: int = 1, allowed_labels: list[str] | None = None
     ) -> list[str]:
-        if not isinstance(entry, dict):
-            return []
         candidates: list[str] = []
-        for subkey, subval in entry.items():
-            if subkey == "problem" or not isinstance(subval, dict):
-                continue
+        for subkey, traj in entry.trajectories.items():
             if allowed_labels is not None:
-                lab = str(subkey)
-                lab2 = str(subval.get("label")) if isinstance(subval.get("label"), str) else None
-                if lab not in allowed_labels and (lab2 is None or lab2 not in allowed_labels):
+                if subkey not in allowed_labels and (not traj.label or traj.label not in allowed_labels):
                     continue
-            candidates.append(str(subkey))
+            candidates.append(subkey)
         if not candidates:
             return []
         k = min(k, len(candidates))
-        try:
-            return random.sample(candidates, k)
-        except Exception:
-            out: list[str] = []
-            pool = candidates.copy()
-            for _ in range(k):
-                choice = random.choice(pool)
-                out.append(choice)
-                pool = [c for c in pool if c != choice]
-                if not pool:
-                    break
-            return out
+        return random.sample(candidates, k)
 
     def _get_selection_mode(self, step_config: StepConfig) -> str:
         try:
@@ -433,23 +285,19 @@ class BaseOperator(abc.ABC):
             pass
         return "weighted"
 
-    def _resolve_label_subkey(self, entry: dict[str, Any], label: str) -> str | None:
+    def _resolve_label_subkey(self, entry: InstanceTrajectories, label: str) -> str | None:
         """将外部提供的标签解析为 entry 的子键。
         优先匹配子键名，其次匹配子项内部的 `label` 字段。
         """
-        if not isinstance(entry, dict):
-            return None
         lab = str(label)
-        if lab in entry and isinstance(entry.get(lab), dict):
+        if lab in entry.trajectories:
             return lab
-        for subkey, subval in entry.items():
-            if subkey == "problem" or not isinstance(subval, dict):
-                continue
-            if str(subval.get("label")) == lab:
-                return str(subkey)
+        for subkey, traj in entry.trajectories.items():
+            if traj.label == lab:
+                return subkey
         return None
 
-    def _select_source_labels(self, entry: dict[str, Any], step_config: StepConfig, required_n: int) -> list[str]:
+    def _select_source_labels(self, entry: InstanceTrajectories, step_config: StepConfig, required_n: int) -> list[str]:
         """统一选择源轨迹标签。
         规则：
         - 若 `inputs` 标签数目 == required_n：直接使用 `inputs`
@@ -457,13 +305,11 @@ class BaseOperator(abc.ABC):
         - 若 `inputs` 标签数目 <  required_n：先使用已有 `inputs`，剩余从整个 entry 中加权采样补齐
         返回 entry 子键名列表，唯一且最多 required_n 个。
         """
-        if not isinstance(entry, dict):
-            return []
         inputs = step_config.inputs or []
         provided_labels = [str(i.get("label")) for i in inputs if isinstance(i, dict) and i.get("label")]
         # 解析为 entry 子键
         resolved = []
-        seen = set()
+        seen: set[str] = set()
         for lab in provided_labels:
             subkey = self._resolve_label_subkey(entry, lab)
             if subkey and subkey not in seen:
@@ -480,21 +326,12 @@ class BaseOperator(abc.ABC):
                 sampled = self._random_select_labels(entry, k=need, allowed_labels=resolved)
             else:
                 sampled = self._weighted_select_labels(entry, k=need, allowed_labels=resolved)
-            # 去重并返回
-            out = []
-            used = set()
-            for s in sampled:
-                if s not in used:
-                    out.append(s)
-                    used.add(s)
-            return out
+            return list(dict.fromkeys(sampled))
 
         # count < need：先用已有，再补齐
         out = list(resolved)
         used = set(out)
-        # 构建候选集合（排除已选）
-        all_subkeys = [str(k) for k, v in entry.items() if k != "problem" and isinstance(v, dict)]
-        remaining = [k for k in all_subkeys if k not in used]
+        remaining = [k for k in entry.trajectories if k not in used]
         if remaining:
             mode = self._get_selection_mode(step_config)
             if mode == "random":
@@ -519,7 +356,7 @@ class BaseOperator(abc.ABC):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: InstanceTrajectories | dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> OperatorResult:
@@ -530,7 +367,7 @@ class BaseOperator(abc.ABC):
         Args:
             step_config: 当前步骤的配置（StepConfig 对象）。
             instance_name: 实例名称。
-            instance_entry: 该实例在轨迹池中的数据（InstanceTrajectories 或兼容 dict）。
+            instance_entry: 该实例在轨迹池中的结构化数据。
             problem_description: 问题描述文本（由调用方显式传入）。
 
         Returns:

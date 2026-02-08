@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import copy
 import json
-import math
 from typing import Any
 
 from ..global_memory.bank import GlobalMemoryBank
@@ -48,32 +47,24 @@ class GlobalMemoryManager:
             return float("inf")
 
     def _select_global_best(
-        self, pool_data: dict[str, Any], traj_pool_manager: TrajPoolManager
+        self, traj_pool_manager: TrajPoolManager
     ) -> dict[str, Any] | None:
+        """从轨迹池中选出全局最优轨迹（单实例）。"""
         try:
-            traj_pool_manager.refresh_best_labels()
-            best_candidates: list[tuple[str, str, float, dict]] = []
-            for inst_name, entry in pool_data.items():
-                if not isinstance(entry, dict):
-                    continue
-                best_label = traj_pool_manager.get_best_label(str(inst_name))
-                if not best_label:
-                    continue
-                detail = traj_pool_manager.get_trajectory(str(best_label), str(inst_name))
-                if not isinstance(detail, dict):
-                    continue
-                val = detail.get("metric")
-                perf_best = self._get_perf(val)
-                best_candidates.append((str(inst_name), str(best_label), perf_best, detail))
-            if not best_candidates:
+            traj_pool_manager.refresh_best_label()
+            best_label = traj_pool_manager.get_best_label()
+            if not best_label:
                 return None
-            finite = [b for b in best_candidates if math.isfinite(b[2])]
-            chosen = min(finite, key=lambda t: t[2]) if finite else min(best_candidates, key=lambda t: t[2])
+            detail = traj_pool_manager.get_trajectory(str(best_label))
+            if not isinstance(detail, dict):
+                return None
+            val = detail.get("metric")
+            perf_best = self._get_perf(val)
             return {
-                "instance_name": chosen[0],
-                "label": chosen[1],
-                "metric": chosen[2],
-                "detail": chosen[3],
+                "instance_name": traj_pool_manager.instance_name,
+                "label": str(best_label),
+                "metric": perf_best,
+                "detail": detail,
             }
         except Exception:
             return None
@@ -83,13 +74,9 @@ class GlobalMemoryManager:
             pool_data = traj_pool_manager.load_pool()
             steps = traj_pool_manager.extract_steps()
 
-            # Fix: Convert dict_keys to list before indexing
-            keys_list = list(pool_data.keys())
-            if not keys_list:
-                return 0
-            instance_name = keys_list[0]
+            instance_name = traj_pool_manager.instance_name
+            problem_description = pool_data.get("problem", "")
 
-            problem_description = pool_data[instance_name]["problem"]
             improvements = [s for s in steps if isinstance(s.get("pct"), (int, float)) and s.get("pct") > 0]
             regressions = [s for s in steps if isinstance(s.get("pct"), (int, float)) and s.get("pct") < 0]
             improvements.sort(key=lambda s: s["pct"], reverse=True)
@@ -97,9 +84,8 @@ class GlobalMemoryManager:
             top_improve = improvements[: max(0, int(k))]
             top_regress = regressions[: max(0, int(k))]
 
-            best_entry = self._select_global_best(pool_data, traj_pool_manager)
+            best_entry = self._select_global_best(traj_pool_manager)
 
-            items_to_add: list[dict[str, Any]] = []
             sys_prompt, user_prompt = self._build_prompts(problem_description, top_improve, top_regress, best_entry)
             items_to_add = self._generate_experiences(sys_prompt, user_prompt)
 

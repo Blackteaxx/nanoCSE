@@ -681,7 +681,7 @@ class PerfAgent:
             # 越小越好：只要不是 inf 就算成功（默认）
             success = bool(best_metric < float("inf"))
 
-        # 构建最终 artifacts（确保包含 problem_description）
+        # 构建最终 artifacts（不含 problem_description，由 TaskMetadata 提供）
         artifacts = dict(ctx.best_artifacts)
 
         # 记录最终轨迹

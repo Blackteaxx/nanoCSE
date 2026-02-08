@@ -15,7 +15,7 @@ from typing import Any
 class TrajectoryData:
     """轨迹池条目数据。
 
-    用于 ``traj_pool_manager.summarize_and_add_trajectories()`` 的输入，
+    用于 ``traj_pool_manager.summarize_and_add_trajectory()`` 的输入，
     替代原先手动构建的 dict。
 
     Attributes:

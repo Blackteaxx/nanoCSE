@@ -82,11 +82,11 @@ def test_agent_result_instantiation():
         success=True,
         solution="# opt",
         metric=5.0,
-        artifacts={"problem_description": "foo"},
+        artifacts={"evaluation_metadata": {"time": 0.1}},
     )
     assert result.instance_id == "test-001"
     assert result.success is True
-    assert result.problem_description == "foo"
+    assert "problem_description" not in result.artifacts
 
     # from_error
     err_result = AgentResult.from_error("fail-001", "boom")

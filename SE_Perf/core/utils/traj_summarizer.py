@@ -88,7 +88,7 @@ Return your analysis in JSON format with the following fields:
             return override
         return """Please analyze the following optimization trajectory and provide insights about the solution approach.
 
-The trajectory tried to iteratively improve a solution{language_clause}{target_clause} for the problem described below.
+The trajectory tried to iteratively improve a solution for the problem described below.
 
 Problem Description:
 {problem_description}
@@ -121,28 +121,12 @@ Please provide your analysis in the JSON format specified in the system prompt."
             格式化后的用户提示词
         """
         template = self.get_user_prompt_template()
-        cfg = {}
-        try:
-            cfg = self.config.get("summarizer", {}) if isinstance(self.config, dict) else {}
-        except Exception:
-            cfg = {}
-        lang = cfg.get("language")
-        opt = cfg.get("optimization_target")
-        lang_str = (lang or "").strip() if isinstance(lang, str) else ""
-        opt_str = (opt or "").strip() if isinstance(opt, str) else ""
-        # 构建可选子句，仅在有值时显示
-        language_clause = f" in {lang_str}" if lang_str else ""
-        target_clause = f", aiming to optimize **{opt_str}**" if opt_str else ""
         mapping = {
             "problem_description": problem_description or "N/A",
             "trajectory_content": trajectory_content,
             "solution_content": solution_content or "",
             "best_solution": best_solution or "",
             "target_solution": target_solution or (solution_content or ""),
-            "language": lang_str,
-            "optimization_target": opt_str,
-            "language_clause": language_clause,
-            "target_clause": target_clause,
         }
         return template.format(**mapping)
 

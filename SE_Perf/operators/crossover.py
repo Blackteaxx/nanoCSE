@@ -7,12 +7,10 @@ Crossover Operator
 """
 
 import textwrap
-from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import BaseOperator, OperatorResult
-
+from operators.base import BaseOperator, InstanceTrajectories, OperatorResult
 
 class CrossoverOperator(BaseOperator):
     """交叉算子：综合两条轨迹的优点，生成新的初始代码"""
@@ -24,7 +22,7 @@ class CrossoverOperator(BaseOperator):
         self,
         step_config: StepConfig,
         instance_name: str,
-        instance_entry: dict[str, Any],
+        instance_entry: InstanceTrajectories,
         *,
         problem_description: str = "",
     ) -> OperatorResult:
@@ -32,8 +30,6 @@ class CrossoverOperator(BaseOperator):
 
         从 instance_entry 中选择两条轨迹，生成交叉策略的 additional_requirements。
         """
-        if not isinstance(instance_entry, dict):
-            return OperatorResult()
 
         # 自适应选择两个源轨迹（不重复）
         chosen = self._select_source_labels(instance_entry, step_config, required_n=2)
@@ -46,21 +42,30 @@ class CrossoverOperator(BaseOperator):
             if extra:
                 pick2 = extra[0]
 
-        ref1 = instance_entry.get(pick1) if pick1 else None
-        ref2 = instance_entry.get(pick2) if pick2 else None
+        traj1 = instance_entry.trajectories.get(pick1) if pick1 else None
+        traj2 = instance_entry.trajectories.get(pick2) if pick2 else None
         used = [s for s in [pick1, pick2] if isinstance(s, str) and s]
 
-        if not isinstance(ref1, dict) or not isinstance(ref2, dict):
+        self.logger.info(f" crossover 算子: pick1={pick1}, pick2={pick2}, has_traj1={traj1 is not None}, has_traj2={traj2 is not None}")
+
+        if traj1 is None or traj2 is None:
+            self.logger.warning(f" crossover 算子: traj1 或 traj2 为 None，跳过")
             return OperatorResult(source_labels=used)
 
-        summary1 = self._format_entry({str(pick1 or "iter1"): ref1})
-        summary2 = self._format_entry({str(pick2 or "iter2"): ref2})
+        summary1 = self._format_entry(InstanceTrajectories(trajectories={pick1 or "iter1": traj1}))
+        summary2 = self._format_entry(InstanceTrajectories(trajectories={pick2 or "iter2": traj2}))
+
+        self.logger.info(f" crossover 算子: has_problem_description={bool(problem_description)}, has_summary1={bool(summary1)}, has_summary2={bool(summary2)}")
 
         if not problem_description or not summary1 or not summary2:
+            self.logger.warning(f" crossover 算子: 缺少必要信息，无法构建 additional_requirements")
             return OperatorResult(source_labels=used)
 
         content = self._build_additional_requirements(summary1, summary2)
+        self.logger.info(f" crossover 算子: 构建的 additional_requirements 长度={len(content) if content else 0}")
+
         if not content:
+            self.logger.warning(f" crossover 算子: _build_additional_requirements 返回空字符串")
             return OperatorResult(source_labels=used)
 
         return OperatorResult(

@@ -144,7 +144,7 @@ class LiveCodeBenchRunner(BaseTaskRunner):
         注意：
         - 返回原始通过率：1.0（所有测试通过）或 0.0（有测试失败）
         - Agent 层的 PerfAgentConfig.metric_higher_is_better 配置决定比较方向
-        - artifacts 必须包含 "problem_description" 键
+        - problem_description 由 TaskMetadata 提供，不包含在 artifacts 中
         
         test_results 格式说明：
         - True：测试通过
@@ -165,7 +165,6 @@ class LiveCodeBenchRunner(BaseTaskRunner):
         if not all_tests:
             self._logger.warning(f"实例 {instance.id} 没有测试用例")
             return 1.0, {
-                "problem_description": instance.question_content,
                 "passed": False,
                 "test_results": [],
                 "evaluation_metadata": {"error": "No test cases"},
@@ -195,7 +194,6 @@ class LiveCodeBenchRunner(BaseTaskRunner):
         except Exception as e:
             self._logger.error(f"评测失败: {e}")
             return 0.0, {
-                "problem_description": instance.question_content,
                 "passed": False,
                 "test_results": [],
                 "evaluation_metadata": {"error": str(e)},
