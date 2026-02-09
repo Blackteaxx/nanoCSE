@@ -187,6 +187,20 @@ def _worker_run_instance(
     return res
 
 
+def _kill_executor_workers(executor: ProcessPoolExecutor) -> None:
+    """强制终止进程池中所有 worker 进程。"""
+    # _processes 是 ProcessPoolExecutor 内部维护的 {pid: process} 字典，
+    # 在 CPython 3.9+ 中稳定存在，是终止 worker 的唯一实际途径。
+    processes = getattr(executor, "_processes", None)
+    if not processes:
+        return
+    for proc in list(processes.values()):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
 def _run_instances(
     instances: list[Path],
     config_path: str,
@@ -200,6 +214,9 @@ def _run_instances(
 
     通过 ProcessPoolExecutor 实现进程级隔离，每个实例独立加载配置。
     max_workers=1 时等价于串行执行。
+
+    收到 KeyboardInterrupt 时：取消排队任务、终止运行中的 worker 进程、
+    关闭进度条，然后将中断重新抛出给调用方。
     """
     # 预过滤 resume 跳过的实例
     if resume:
@@ -238,8 +255,11 @@ def _run_instances(
     )
     pbar.set_postfix_str(f"✓{success_count} ✗{failed_count} ⊘{skipped_count}")
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_name = {}
+    executor = ProcessPoolExecutor(max_workers=max_workers)
+    future_to_name: dict = {}
+
+    try:
+        # 提交所有任务
         for inst_path_str, inst_output_dir, inst_name in pending_tasks:
             future = executor.submit(
                 _worker_run_instance,
@@ -250,6 +270,7 @@ def _run_instances(
             )
             future_to_name[future] = inst_name
 
+        # 按完成顺序收集结果
         for future in as_completed(future_to_name):
             inst_name = future_to_name[future]
             try:
@@ -276,7 +297,30 @@ def _run_instances(
                 f"best_metric: {res.get('best_metric')}"
             )
 
-    pbar.close()
+        executor.shutdown(wait=True)
+
+    except KeyboardInterrupt:
+        pbar.close()
+        print("\n⚠ 收到中断信号，正在终止所有运行中的进程...")
+
+        # 1. 取消尚未开始的 future
+        for future in future_to_name:
+            future.cancel()
+
+        # 2. 强制终止正在运行的 worker 进程
+        _kill_executor_workers(executor)
+
+        # 3. 关闭 executor，不等待
+        executor.shutdown(wait=False, cancel_futures=True)
+
+        logger.warning(
+            f"用户中断 | 已完成: ✓{success_count} ✗{failed_count} ⊘{skipped_count}"
+        )
+        raise
+
+    finally:
+        pbar.close()
+
     return all_results
 
 
@@ -484,9 +528,18 @@ def run_batch(
     logger.info(f"实例总数: {len(instances)}, 输出目录: {batch_output_dir}")
 
     # 批量执行
-    all_results = _run_instances(
-        instances, config_path, batch_output_dir, mode, resume, max_workers, logger,
-    )
+    try:
+        all_results = _run_instances(
+            instances, config_path, batch_output_dir, mode, resume, max_workers, logger,
+        )
+    except KeyboardInterrupt:
+        total_duration = round(time.time() - start_ts, 1)
+        print(f"\n=== 批量执行已中断 ===")
+        print(f"  已运行: {total_duration}s")
+        print(f"  输出目录: {batch_output_dir}")
+        print("  后处理已跳过，可使用 --resume 从断点继续")
+        logger.warning(f"批量执行被用户中断，耗时 {total_duration}s，后处理已跳过")
+        sys.exit(130)
 
     # 后处理
     print("\n=== 后处理阶段 ===")
