@@ -124,8 +124,18 @@ def aggregate_all_iterations_preds(root_output_dir: Path, logger) -> Path | None
         return None
 
 
-def write_final_json_from_preds(aggregated_preds_path: Path, root_output_dir: Path, logger) -> Path | None:
-    """从汇总的 preds.json 中选择最佳结果（metric 最小）写入 final.json。"""
+def write_final_json_from_preds(
+    aggregated_preds_path: Path,
+    root_output_dir: Path,
+    logger,
+    *,
+    higher_is_better: bool = False,
+) -> Path | None:
+    """从汇总的 preds.json 中选择最佳结果写入 final.json。
+
+    Args:
+        higher_is_better: True 时取 metric 最大的条目，False 时取最小的。
+    """
     try:
         with open(aggregated_preds_path, encoding="utf-8") as f:
             aggregated_data = json.load(f)
@@ -133,20 +143,25 @@ def write_final_json_from_preds(aggregated_preds_path: Path, root_output_dir: Pa
         logger.warning(f"读取汇总 preds.json 失败: {e}")
         return None
 
+    # 无效/缺失 metric 的哨兵值：始终为"最差"
+    _sentinel = -float("inf") if higher_is_better else float("inf")
+
     def _parse_metric(val: Any) -> float:
         try:
             if val is None:
-                return float("inf")
+                return _sentinel
             if isinstance(val, (int, float)):
                 return float(val)
             if isinstance(val, str):
                 lowered = val.strip().lower()
                 if lowered in ("inf", "infinity", "nan"):
-                    return float("inf")
+                    return _sentinel
                 return float(val)
-            return float("inf")
+            return _sentinel
         except Exception:
-            return float("inf")
+            return _sentinel
+
+    _select_best = max if higher_is_better else min
 
     final_result_map: dict[str, str] = {}
     try:
@@ -154,7 +169,7 @@ def write_final_json_from_preds(aggregated_preds_path: Path, root_output_dir: Pa
             if not isinstance(entries, list) or not entries:
                 continue
             try:
-                best_entry = min(entries, key=lambda e: _parse_metric(e.get("metric")))
+                best_entry = _select_best(entries, key=lambda e: _parse_metric(e.get("metric")))
             except ValueError:
                 continue
             final_result_map[str(instance_id)] = best_entry.get("solution", "") or ""
@@ -230,7 +245,8 @@ def log_token_usage(output_dir, logger):
         pass
 
 
-def print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger):
+def print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger,
+                        *, higher_is_better: bool = False):
     """打印和记录最终执行摘要。"""
     logger.info("所有任务执行完成")
     print("\n执行完成")
@@ -241,7 +257,7 @@ def print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logg
         root_dir = Path(output_dir)
         agg_path = aggregate_all_iterations_preds(root_dir, logger)
         if agg_path:
-            write_final_json_from_preds(agg_path, root_dir, logger)
+            write_final_json_from_preds(agg_path, root_dir, logger, higher_is_better=higher_is_better)
     except Exception as e:
         logger.warning(f"生成最终结果文件失败: {e}")
 

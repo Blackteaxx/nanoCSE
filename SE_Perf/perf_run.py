@@ -87,6 +87,16 @@ def run_single_instance(
             result["error"] = msg
             return result
 
+        # 从 base_config 提取 metric_higher_is_better（默认 False = 越小越好）
+        metric_higher_is_better = False
+        if se_cfg.base_config and Path(se_cfg.base_config).exists():
+            try:
+                with open(se_cfg.base_config, encoding="utf-8") as f:
+                    base_raw = yaml.safe_load(f) or {}
+                metric_higher_is_better = bool(base_raw.get("metric_higher_is_better", False))
+            except Exception:
+                pass
+
         task_type = se_cfg.task_type or "effibench"
         try:
             task_runner = create_task_runner(task_type)
@@ -111,7 +121,7 @@ def run_single_instance(
             logger.info("检测到任务已完成，直接结束")
             log_token_usage(output_dir, logger)
             result["status"] = "skipped"
-            result["best_metric"] = _read_best_metric(output_dir)
+            result["best_metric"] = _read_best_metric(output_dir, higher_is_better=metric_higher_is_better)
             return result
 
         # 未完成：清空输出目录并初始化日志
@@ -210,10 +220,11 @@ def run_single_instance(
 
         # 6. 最终汇总
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger)
+        print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger,
+                            higher_is_better=metric_higher_is_better)
 
         result["status"] = "success"
-        result["best_metric"] = _read_best_metric(output_dir)
+        result["best_metric"] = _read_best_metric(output_dir, higher_is_better=metric_higher_is_better)
 
     except Exception as e:
         if "logger" in locals():
@@ -225,15 +236,19 @@ def run_single_instance(
     return result
 
 
-def _read_best_metric(output_dir: str) -> float | str | None:
-    """从 preds.json 中读取最佳 metric（最小值）。"""
+def _read_best_metric(output_dir: str, *, higher_is_better: bool = False) -> float | str | None:
+    """从 preds.json 中读取最佳 metric。
+
+    Args:
+        higher_is_better: True 时取最大值（如通过率），False 时取最小值（如运行时间）。
+    """
     preds_path = Path(output_dir) / "preds.json"
     if not preds_path.exists():
         return None
     try:
         with open(preds_path, encoding="utf-8") as f:
             preds = json.load(f)
-        best = float("inf")
+        best = -float("inf") if higher_is_better else float("inf")
         for _instance_id, entries in preds.items():
             if not isinstance(entries, list):
                 continue
@@ -242,11 +257,15 @@ def _read_best_metric(output_dir: str) -> float | str | None:
                     val = entry.get("metric")
                     if val is not None:
                         fval = float(val)
-                        if fval < best:
+                        if higher_is_better:
+                            if fval > best:
+                                best = fval
+                        elif fval < best:
                             best = fval
                 except (ValueError, TypeError):
                     continue
-        return best if best != float("inf") else None
+        sentinel = -float("inf") if higher_is_better else float("inf")
+        return best if best != sentinel else None
     except Exception:
         return None
 
