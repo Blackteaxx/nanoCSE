@@ -93,8 +93,7 @@ SE/
 │   ├── swe_iterator.py             # SWE-agent统一迭代运行器
 │   └── utils/                      # 工具函数目录
 │       ├── __init__.py
-│       ├── se_logger.py            # SE框架日志系统
-│       └── organize_folder.py      # 工作目录格式转换工具
+│       └── se_logger.py            # SE框架日志系统
 ├── operators/                      # 算子系统
 │   ├── __init__.py                 # 算子统一接口
 │   ├── base.py                     # 算子基类定义
@@ -189,20 +188,9 @@ logger.error("错误信息", exc_info=True)  # 包含异常堆栈
 2025-07-13 10:30:15,125 - ERROR - SE.basic_run - 运行出错: FileNotFoundError
 ```
 
-### 工作目录转换工具 (`organize_folder.py`)
+### 工作目录转换工具 (已移除)
 
-- **文件路径**: `SE/core/utils/organize_folder.py`
-- **功能**: 将工作目录从iterator（SWE-agent）风格转换为SE风格，以控制迭代的稳健性
-
-#### 主要功能
-1. **目录结构转换**: 将`trajectory/instance_id/files`格式转换为`trajectory/instance_id/1/files`的迭代运行结构
-2. **轨迹文件处理**: 自动处理`.traj`文件，生成简化的`.tra`文件用于分析
-3. **内容截断优化**: 对长内容进行智能截断，减少存储空间和提高处理效率
-4. **统计信息记录**: 生成处理日志，记录token数量和文件处理统计
-
-#### 设计参考
-- 基于`test/converter_old.py`的逻辑设计（仅作参考，需根据SE框架需求重新实现）
-- 支持迭代式组织，确保多次运行不冲突
+> `organize_folder.py` 原为空文件占位，功能已由 `trajectory_processor.py` 取代，已被删除。
 - 提供轨迹文件的标准化处理流程
 
 #### 使用场景

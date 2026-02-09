@@ -8,7 +8,11 @@ SE Operators Registry System
 
 from __future__ import annotations
 
+import logging
+
 from .base import BaseOperator, OperatorContext
+
+logger = logging.getLogger(__name__)
 
 
 class OperatorRegistry:
@@ -29,7 +33,7 @@ class OperatorRegistry:
             raise ValueError(f"算子类 {operator_class} 必须继承自 BaseOperator")
 
         self._operators[name] = operator_class
-        print(f"✅ 已注册算子: {name} -> {operator_class.__name__}")
+        logger.debug(f"已注册算子: {name} -> {operator_class.__name__}")
 
     def get(self, name: str) -> type[BaseOperator] | None:
         """
@@ -65,13 +69,13 @@ class OperatorRegistry:
         """
         operator_class = self.get(name)
         if operator_class is None:
-            print(f"❌ 未找到算子: {name}")
+            logger.warning(f"未找到算子: {name}")
             return None
 
         try:
             return operator_class(context)
         except Exception as e:
-            print(f"❌ 创建算子 {name} 失败: {e}")
+            logger.error(f"创建算子 {name} 失败: {e}")
             return None
 
 

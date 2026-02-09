@@ -1,55 +1,116 @@
 # PerfAgent - Code Performance Optimization Agent
 
-PerfAgent is a code performance optimization tool built on top of the CSE framework, designed for iterative code efficiency optimization through LLM-driven refinement.
+PerfAgent is a task-agnostic code performance optimization agent built on top of the CSE framework, designed for iterative code efficiency optimization through LLM-driven refinement.
 
-## 🎯 Features
+## Features
 
 - **Iterative Optimization**: Continuously improve code performance through multiple rounds
-- **Performance Evaluation**: Evaluate code efficiency using EffiBench-X benchmark
+- **Task-Agnostic Design**: Plugin-based TaskRunner system supports multiple task types
+- **Performance Evaluation**: Evaluate code efficiency using EffiBench-X and LiveCodeBench benchmarks
 - **Trajectory Recording**: Complete logging of optimization process for analysis and reproduction
-- **Diff Application**: Automatic parsing and application of model-generated code modifications
-- **Flexible Configuration**: Support for YAML configuration files and command-line arguments
-- **Batch Processing**: Support for both single instance and batch instance optimization
+- **Diff Application**: Automatic parsing and application of SEARCH/REPLACE code modifications
+- **Flexible Configuration**: Support for YAML configuration files and command-line overrides
+- **Protocol Interface**: Standardized `AgentRequest` / `AgentResult` communication with SE_Perf
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```text
 perfagent/
-├── agent.py            # Main optimization agent class
-├── config.py           # Configuration management system
-├── trajectory.py       # Trajectory logging system
-├── diff_applier.py     # Diff parsing and application tool
-├── llm_client.py       # LLM interaction interface
-├── run.py              # Single instance runner
-├── run_batch.py        # Batch instance runner
-├── effibench/          # EffiBench integration
-│   ├── benchmark.py    # Benchmark execution
-│   ├── backends/       # Execution backends
-│   └── utils.py        # Utility functions
-├── utils/              # Utility modules
-│   └── log.py          # Logging utilities
-└── tests/              # Test suite
+├── __init__.py                  # Package entry, exports PerfAgent / PerfAgentConfig
+├── agent.py                     # Core PerfAgent class (iterative optimization loop)
+├── config.py                    # Configuration management (YAML loading)
+├── diff_applier.py              # SEARCH/REPLACE diff parser and applier
+├── llm_client.py                # LLM API client (retry / token stats / IO logging)
+├── protocols.py                 # AgentRequest / AgentResult protocol definitions
+├── run.py                       # CLI single-instance runner
+├── task_registry.py             # TaskRunner registration factory
+├── task_runner.py               # BaseTaskRunner abstract interface
+├── trajectory.py                # Trajectory logging system
+├── config_example.yaml          # Config example (new format)
+├── config_example_original.yaml # Config example (old format, backward compat)
+├── pytest.ini                   # Pytest configuration
+├── README.md
+│
+├── effibench/                   # EffiBench-X performance evaluation
+│   ├── __init__.py
+│   ├── analysis.py              #   Statistical analysis (IQR / confidence interval)
+│   ├── benchmark.py             #   Performance benchmark orchestrator
+│   ├── run_tests.py             #   Test execution (sandbox backend submission)
+│   ├── utils.py                 #   Language registry & code processing utilities
+│   └── backends/
+│       ├── __init__.py
+│       └── backend_utils.py     #   Sandbox backend client & health management
+│
+├── lcb_eval/                    # LiveCodeBench evaluation
+│   ├── __init__.py
+│   └── testing_util.py          #   Test execution (compile / run / compare)
+│
+├── tasks/                       # Task-specific TaskRunner implementations
+│   ├── __init__.py
+│   ├── effibench.py             #   EffiBenchRunner (performance optimization)
+│   └── livecodebench.py         #   LiveCodeBenchRunner (code generation)
+│
+├── tests/                       # Test suite
+│   ├── conftest.py              #   Shared pytest fixtures
+│   ├── test_agent.py            #   PerfAgent core tests
+│   ├── test_config.py           #   Config system tests
+│   ├── test_diff_applier.py     #   Diff parser tests
+│   ├── test_integration.py      #   Integration tests
+│   ├── test_run_refactored.py   #   Refactored run flow tests
+│   ├── test_trajectory.py       #   Trajectory logger tests
+│   └── README.md
+│
+└── utils/                       # Utility modules
+    ├── json_utils.py            #   JSON-safe serialization helper
+    └── log.py                   #   Logging utilities
 ```
 
-## 🚀 Quick Start
+## Key Modules
 
-### Basic Usage
+### Core Components
+
+| File               | Core Class / Function                            | Responsibility                                               |
+| ------------------ | ------------------------------------------------ | ------------------------------------------------------------ |
+| `agent.py`         | `PerfAgent`, `RunContext`                         | Iterative optimization loop: LLM gen -> eval -> feedback -> refine |
+| `config.py`        | `PerfAgentConfig`, `ModelConfig`                  | YAML config loading, CLI overrides, backward compatibility   |
+| `protocols.py`     | `AgentRequest`, `AgentResult`, `TaskMetadata`     | Standardized SE_Perf <-> PerfAgent communication protocol    |
+| `diff_applier.py`  | `DiffApplier`                                     | SEARCH/REPLACE block parsing and code modification           |
+| `llm_client.py`    | `LLMClient`                                       | LLM calls with retry, token stats, IO logging                |
+| `task_runner.py`   | `BaseTaskRunner` (ABC)                            | Task plugin interface: load / evaluate / prompt / extract    |
+| `task_registry.py` | `register_task_runner()`, `create_task_runner()`  | Task type registration factory                               |
+| `trajectory.py`    | `TrajectoryLogger`, `OptimizationStep`            | Trajectory recording (steps / history / metadata)            |
+| `run.py`           | `run_single_instance()`, `main()`                 | CLI single-instance execution entry point                    |
+
+### Task Plugins (tasks/)
+
+| File              | Class                | Task Type               | Key Features                                     |
+| ----------------- | -------------------- | ----------------------- | ------------------------------------------------ |
+| `effibench.py`    | `EffiBenchRunner`    | Performance optimization | Cascade benchmark (single -> multi run), diff/direct mode |
+| `livecodebench.py`| `LiveCodeBenchRunner`| Code generation          | Public/private test cases, detailed failure feedback |
+
+### EffiBench Evaluation Infrastructure (effibench/)
+
+| File                       | Core Function / Class            | Responsibility                                       |
+| -------------------------- | -------------------------------- | ---------------------------------------------------- |
+| `analysis.py`              | `analyze_samples()`              | IQR outlier removal, confidence intervals, trimmed mean |
+| `benchmark.py`             | `run_performance_benchmark()`    | Concurrent runs, aggregate runtime/memory/integral   |
+| `run_tests.py`             | `run_tests()`                    | Sandbox backend submission and result polling         |
+| `utils.py`                 | `EFFIBENCH_REGISTRY`             | Language registry (Python/C++/Java/JS/Go/Ruby), code assembly |
+| `backends/backend_utils.py`| `BackendManager`                 | Sandbox health monitoring and automatic failover     |
+
+### LiveCodeBench Evaluation (lcb_eval/)
+
+| File              | Core Function | Responsibility                                        |
+| ----------------- | ------------- | ----------------------------------------------------- |
+| `testing_util.py` | `run_test()`  | Compile & execute code, evaluate outputs, security sandbox |
+
+## Quick Start
+
+### Single Instance Run
 
 ```bash
-# Run single instance (recommended)
 python -m perfagent.run \
     --instance /path/to/instance.json \
-    --base-dir /path/to/output
-
-# Batch run (recommended)
-python -m perfagent.run_batch \
-    --instances-dir /path/to/instances/ \
-    --base-dir /path/to/output
-
-# Use configuration file (batch)
-python -m perfagent.run_batch \
-    --config perfagent/config_example.yaml \
-    --instances-dir /path/to/instances/ \
     --base-dir /path/to/output
 ```
 
@@ -59,7 +120,6 @@ python -m perfagent.run_batch \
 | ------------------ | ------------------------------------ |
 | `--config`         | Configuration file path              |
 | `--instance`       | Single instance file path            |
-| `--instances-dir`  | Instance directory path (batch run)  |
 | `--output`         | Result output file path              |
 | `--base-dir`       | Instance output base directory       |
 | `--max-iterations` | Maximum number of iterations         |
@@ -68,7 +128,7 @@ python -m perfagent.run_batch \
 | `--trajectory-dir` | Trajectory save directory            |
 | `--log-dir`        | Log save directory                   |
 
-## ⚙️ Configuration
+## Configuration
 
 Create a YAML configuration file to customize PerfAgent behavior:
 
@@ -88,6 +148,11 @@ num_runs: 5
 trim_ratio: 0.1
 max_workers: 4
 
+# Task-specific configuration
+task_config:
+  task_type: "effibench"
+  # ... task-specific settings
+
 # Trajectory and log configuration
 save_trajectory: true
 trajectory_dir: "./trajectories"
@@ -95,34 +160,44 @@ log_dir: "./logs"
 log_level: "INFO"
 ```
 
-## 🏗️ Architecture
-
-### Core Components
-
-| Component          | Description                       |
-| ------------------ | --------------------------------- |
-| `PerfAgent`        | Main optimization agent class     |
-| `PerfAgentConfig`  | Configuration management system   |
-| `TrajectoryLogger` | Trajectory recording system       |
-| `DiffApplier`      | Diff parsing and application tool |
-| `LLMClient`        | Model interaction interface       |
+## Architecture
 
 ### Optimization Flow
 
-1. **Initialization**: Load configuration and instance data
+1. **Initialization**: Load configuration and instance data via TaskRunner
 2. **Performance Evaluation**: Evaluate initial code performance
 3. **Iterative Optimization**:
-   - Generate optimization suggestions
-   - Parse and apply diff
-   - Evaluate optimized performance
-   - Record optimization history
+   - Generate optimization suggestions via LLM
+   - Parse and apply SEARCH/REPLACE diff
+   - Evaluate optimized performance via TaskRunner
+   - Record optimization history in trajectory
 4. **Result Output**: Save best code and trajectory
 
-## 📊 Output Files
+### TaskRunner Plugin System
+
+PerfAgent uses a plugin-based design. Each task type implements `BaseTaskRunner`:
+
+```python
+from perfagent.task_runner import BaseTaskRunner
+
+class MyTaskRunner(BaseTaskRunner):
+    @classmethod
+    def load_metadata(cls, instance_path) -> TaskMetadata: ...
+    def load_instance(self, instance_path): ...
+    def get_initial_solution(self) -> str: ...
+    def evaluate(self, solution) -> tuple[float, dict]: ...
+    def build_system_prompt(self) -> str: ...
+    def build_optimization_prompt(self, ...) -> str: ...
+    def extract_solution(self, response) -> str: ...
+```
+
+Registered task types: `effibench`, `livecodebench`, `aime`
+
+## Output Files
 
 ### Trajectory File
 
-Trajectory files are saved in `<base_dir>/<task_name>/` as `<task_name>.traj`:
+Saved in `<base_dir>/<task_name>/<task_name>.traj`:
 
 ```json
 {
@@ -136,7 +211,7 @@ Trajectory files are saved in `<base_dir>/<task_name>/` as `<task_name>.traj`:
   "steps": [
     {
       "step_id": 1,
-      "timestamp": "2024-01-01T10:00:00",
+      "timestamp": "...",
       "action": "initial_evaluation",
       "input_data": {...},
       "output_data": {...},
@@ -146,13 +221,7 @@ Trajectory files are saved in `<base_dir>/<task_name>/` as `<task_name>.traj`:
 }
 ```
 
-### Log File
-
-Log files are saved in `<base_dir>/<task_name>/perfagent.log` with detailed runtime information.
-
-## 🛠️ Testing
-
-Run test cases:
+## Testing
 
 ```bash
 # Run all tests
@@ -162,93 +231,26 @@ python -m pytest perfagent/tests/
 python -m pytest perfagent/tests/test_agent.py
 ```
 
-## 📋 Examples
+## Security & Configuration Tips
 
-### Run Single Instance
-
-```bash
-python -m perfagent.run \
-    --instance instances/aizu_1444_yokohama-phenomena.json \
-    --base-dir output \
-    --max-iterations 5 \
-    --output output/aizu_1444_yokohama-phenomena/result.json
-```
-
-### Batch Run EffiBench-X
-
-```bash
-python -m perfagent.run_batch \
-    --instances-dir instances/ \
-    --config perfagent/config_example.yaml \
-    --base-dir output \
-    --output output/summary.json
-```
-
-## 🔒 Security & Configuration Tips
-
-- **API Keys**: Do not store plaintext API keys in the repository. Use environment variables or local `.env` files:
+- **API Keys**: Do not store plaintext API keys in the repository. Use environment variables:
 
   ```bash
   export OPENROUTER_API_KEY=xxxxx
   ```
 
-  Then reference in config: `api_key: ${OPENROUTER_API_KEY}`
+- **LLM Logging**: Enable request/response logging with `--llm-log-io` and `--llm-log-sanitize`
 
-- **LLM Logging**: Enable request/response logging with sanitization:
+- **Early Stopping**: Use `--early-stop-no-improve N` or set `early_stop_no_improve: N` in YAML
 
-  - `--llm-log-io` and `--llm-log-sanitize` log LLM I/O to `logs/llm_io.log` with sensitive endpoints hidden
-
-- **Early Stopping**: Configure early stopping to avoid ineffective iterations:
-  - Use `--early-stop-no-improve N` or set `early_stop_no_improve: N` in YAML
-
-## 🔧 Extension & Customization
-
-### Custom Model Interface
-
-Inherit from the base class to integrate different models:
-
-```python
-from perfagent.llm_client import LLMClient
-
-class CustomLLMClient(LLMClient):
-    def query(self, prompt: str, max_tokens: int = 4000) -> str:
-        # Implement custom model call
-        pass
-```
-
-### Custom Performance Evaluation
-
-Modify `_evaluate_performance` method to use different evaluation criteria.
-
-### Custom Prompts
-
-Set `system_template` and `optimization_template` in configuration file to customize prompts.
-
-## ⚠️ Important Notes
+## Important Notes
 
 1. Ensure sufficient disk space for trajectory and log files
 2. Adjust `time_limit` and `memory_limit` based on actual requirements
 3. EffiBench-X backend service must be running for performance evaluation
 4. Check network connectivity for API calls
 
-## 🆘 Troubleshooting
-
-### Common Issues
-
-| Issue                         | Solution                                         |
-| ----------------------------- | ------------------------------------------------ |
-| Instance file not found       | Check file path and permissions                  |
-| Performance evaluation failed | Check EffiBench-X dependencies and configuration |
-| Model call failed             | Check API key and network connection             |
-| Trajectory save failed        | Check directory permissions and disk space       |
-
-### Debugging Tips
-
-- Use `--log-level DEBUG` for detailed logs
-- Check trajectory files for execution steps
-- Use `--max-iterations 1` for quick testing
-
-## 🔗 Related Documentation
+## Related Documentation
 
 - [Main Project README](../README.md)
 - [SE_Perf Documentation](../SE_Perf/README.md)

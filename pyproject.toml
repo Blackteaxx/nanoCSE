@@ -47,6 +47,7 @@ dependencies = [
     "chromadb",
     "pre-commit",
     "PyYAML",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
