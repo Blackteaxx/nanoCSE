@@ -48,6 +48,7 @@ dependencies = [
     "pre-commit",
     "PyYAML",
     "tqdm",
+    "fastapi",
 ]
 
 [project.optional-dependencies]
