@@ -68,7 +68,7 @@ class PerfAgentConfig:
     # 从 OptimizationConfig 提升的通用字段
     adopt_only_if_improved: bool = False
     # metric 比较方向：False=越小越好(默认)，True=越大越好
-    metric_higher_is_better: bool = False
+    metric_higher_is_better: bool = True
 
     # 组件配置
     model: ModelConfig = field(default_factory=ModelConfig)
