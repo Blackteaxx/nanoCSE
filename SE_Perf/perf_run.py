@@ -87,15 +87,7 @@ def run_single_instance(
             result["error"] = msg
             return result
 
-        # 从 base_config 提取 metric_higher_is_better（默认 False = 越小越好）
-        metric_higher_is_better = False
-        if se_cfg.base_config and Path(se_cfg.base_config).exists():
-            try:
-                with open(se_cfg.base_config, encoding="utf-8") as f:
-                    base_raw = yaml.safe_load(f) or {}
-                metric_higher_is_better = bool(base_raw.get("metric_higher_is_better", False))
-            except Exception:
-                pass
+        metric_higher_is_better = se_cfg.metric_higher_is_better
 
         task_type = se_cfg.task_type or "effibench"
         try:

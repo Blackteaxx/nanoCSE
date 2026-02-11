@@ -5,6 +5,9 @@
 # 任务类型
 task_type: livecodebench
 
+# metric 比较方向：true=越大越好（LiveCodeBench 通过率 1.0=通过，0.0=不通过）
+metric_higher_is_better: true
+
 model:
   name: stepfun/step-3.5-flash:free
   api_base: https://openrouter.ai/api/v1

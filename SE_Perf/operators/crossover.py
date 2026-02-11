@@ -12,6 +12,7 @@ from perf_config import StepConfig
 
 from operators.base import BaseOperator, InstanceTrajectories, OperatorResult
 
+
 class CrossoverOperator(BaseOperator):
     """交叉算子：综合两条轨迹的优点，生成新的初始代码"""
 
@@ -46,26 +47,30 @@ class CrossoverOperator(BaseOperator):
         traj2 = instance_entry.trajectories.get(pick2) if pick2 else None
         used = [s for s in [pick1, pick2] if isinstance(s, str) and s]
 
-        self.logger.info(f" crossover 算子: pick1={pick1}, pick2={pick2}, has_traj1={traj1 is not None}, has_traj2={traj2 is not None}")
+        self.logger.info(
+            f" crossover 算子: pick1={pick1}, pick2={pick2}, has_traj1={traj1 is not None}, has_traj2={traj2 is not None}"
+        )
 
         if traj1 is None or traj2 is None:
-            self.logger.warning(f" crossover 算子: traj1 或 traj2 为 None，跳过")
+            self.logger.warning(" crossover 算子: traj1 或 traj2 为 None，跳过")
             return OperatorResult(source_labels=used)
 
         summary1 = self._format_entry(InstanceTrajectories(trajectories={pick1 or "iter1": traj1}))
         summary2 = self._format_entry(InstanceTrajectories(trajectories={pick2 or "iter2": traj2}))
 
-        self.logger.info(f" crossover 算子: has_problem_description={bool(problem_description)}, has_summary1={bool(summary1)}, has_summary2={bool(summary2)}")
+        self.logger.info(
+            f" crossover 算子: has_problem_description={bool(problem_description)}, has_summary1={bool(summary1)}, has_summary2={bool(summary2)}"
+        )
 
         if not problem_description or not summary1 or not summary2:
-            self.logger.warning(f" crossover 算子: 缺少必要信息，无法构建 additional_requirements")
+            self.logger.warning(" crossover 算子: 缺少必要信息，无法构建 additional_requirements")
             return OperatorResult(source_labels=used)
 
         content = self._build_additional_requirements(summary1, summary2)
         self.logger.info(f" crossover 算子: 构建的 additional_requirements 长度={len(content) if content else 0}")
 
         if not content:
-            self.logger.warning(f" crossover 算子: _build_additional_requirements 返回空字符串")
+            self.logger.warning(" crossover 算子: _build_additional_requirements 返回空字符串")
             return OperatorResult(source_labels=used)
 
         return OperatorResult(

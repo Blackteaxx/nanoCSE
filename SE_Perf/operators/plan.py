@@ -12,7 +12,6 @@ Plan Operator (LLM-based)
 import json
 import re
 import textwrap
-from typing import Any
 
 from perf_config import StepConfig
 

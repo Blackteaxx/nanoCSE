@@ -12,7 +12,7 @@ from typing import Any
 
 from perf_config import StepConfig
 
-from operators.base import InstanceTrajectories, TrajectoryItem, OperatorResult, TemplateOperator
+from operators.base import InstanceTrajectories, OperatorResult, TemplateOperator, TrajectoryItem
 
 
 class TrajPoolSummaryOperator(TemplateOperator):

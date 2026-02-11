@@ -18,7 +18,6 @@ from core.utils.se_logger import get_se_logger
 from core.utils.traj_pool_manager import TrajPoolManager
 from perf_config import StepConfig
 
-
 # ---------------------------------------------------------------------------
 # 数据结构
 # ---------------------------------------------------------------------------
@@ -30,7 +29,7 @@ class TrajectoryItem:
 
     Attributes:
         label: 轨迹标签（如 "sol1", "iter3"）。
-        metric: 标量性能指标（越低越好）。
+        metric: 标量性能指标，比较方向由 OperatorContext.metric_higher_is_better 决定。
         solution: 解/代码文本。
         summary: 轨迹摘要（可为 dict 或 str）。
         extras: 其他未列举的字段（保留原始 JSON 中的所有额外字段）。
@@ -43,7 +42,7 @@ class TrajectoryItem:
     extras: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "TrajectoryItem":
+    def from_dict(d: dict[str, Any]) -> TrajectoryItem:
         known = {"label", "metric", "solution", "summary"}
         metric_raw = d.get("metric")
         try:
@@ -89,7 +88,7 @@ class InstanceTrajectories:
         return bool(self.problem) or bool(self.trajectories)
 
     @staticmethod
-    def from_dict(d: dict[str, Any] | None) -> "InstanceTrajectories":
+    def from_dict(d: dict[str, Any] | None) -> InstanceTrajectories:
         """从轨迹池的原始 JSON dict 构建。"""
         if not isinstance(d, dict):
             return InstanceTrajectories()
@@ -122,11 +121,13 @@ class OperatorContext:
         model_config: LLM 模型配置（保留 dict，因为需透传给 LLMClient）。
         prompt_config: 提示词配置。
         selection_mode: 默认轨迹选择模式（"weighted" 或 "random"）。
+        metric_higher_is_better: metric 比较方向，True=越大越好，False=越小越好（默认）。
     """
 
     model_config: dict[str, Any] = field(default_factory=dict)
     prompt_config: dict[str, Any] = field(default_factory=dict)
     selection_mode: str = "weighted"
+    metric_higher_is_better: bool = False
 
 
 @dataclass
@@ -214,22 +215,31 @@ class BaseOperator(abc.ABC):
         except Exception as e:
             self.logger.error(f"LLM API调用失败: {e}")
             return ""
-            
+
     def _format_entry(self, entry: InstanceTrajectories) -> str:
         return TrajPoolManager.format_entry(entry)
 
     def _weighted_select_labels(
         self, entry: InstanceTrajectories, k: int = 1, allowed_labels: list[str] | None = None
     ) -> list[str]:
-        """基于 performance 的线性加权采样选择子标签，performance 越低权重越高。
+        """基于 performance 的线性加权采样选择子标签，表现更好的轨迹获得更高权重。
+
+        权重方向由 ``self.context.metric_higher_is_better`` 决定：
+        - ``True``：metric 越大越好，直接用 metric 值作为权重。
+        - ``False``（默认）：metric 越小越好，用 ``1/metric`` 作为权重。
+
         若提供 allowed_labels，则仅在该集合中进行采样（忽略不存在的标签）。
         """
+        higher = self.context.metric_higher_is_better
+        # 当 metric 为 None 时，使用"最差"默认值（使其权重最低）
+        default_metric = 0.0 if higher else 1.0
+
         items: list[tuple[str, float]] = []
         for subkey, traj in entry.trajectories.items():
             if allowed_labels is not None:
                 if subkey not in allowed_labels and (not traj.label or traj.label not in allowed_labels):
                     continue
-            perf_val = traj.metric if traj.metric is not None else 1.0
+            perf_val = traj.metric if traj.metric is not None else default_metric
             items.append((subkey, perf_val))
         if not items:
             return []
@@ -237,7 +247,12 @@ class BaseOperator(abc.ABC):
         selected: list[str] = []
         remaining = items.copy()
         for _ in range(min(k, len(remaining))):
-            weights = [max(0.001, 1.0 / max(eps, perf)) for _, perf in remaining]
+            if higher:
+                # 越大越好：直接用 metric 值作为权重
+                weights = [max(0.001, perf) for _, perf in remaining]
+            else:
+                # 越小越好：用 1/metric 作为权重
+                weights = [max(0.001, 1.0 / max(eps, perf)) for _, perf in remaining]
             total = sum(weights)
             if total <= 0:
                 choice = random.choice(remaining)[0]

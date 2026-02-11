@@ -329,6 +329,8 @@ class SEPerfRunSEConfig:
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     global_memory_bank: GlobalMemoryConfig | None = None
+    # metric 比较方向：False=越小越好(默认)，True=越大越好
+    metric_higher_is_better: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -339,6 +341,7 @@ class SEPerfRunSEConfig:
             "model": self.model.to_dict(),
             "instances": self.instances.to_dict(),
             "max_iterations": self.max_iterations,
+            "metric_higher_is_better": self.metric_higher_is_better,
             "prompt_config": self.prompt_config.to_dict(),
             "strategy": self.strategy.to_dict(),
         }
@@ -381,6 +384,7 @@ class SEPerfRunSEConfig:
         local_memory = LocalMemoryConfig.from_dict(lm_dict) if isinstance(lm_dict, dict) else None
         prompt_config = PromptConfig.from_dict((d or {}).get("prompt_config") or {})
         strategy = StrategyConfig.from_dict((d or {}).get("strategy") or {})
+        metric_higher_is_better = bool((d or {}).get("metric_higher_is_better", False))
         known = {
             "base_config",
             "output_dir",
@@ -388,6 +392,7 @@ class SEPerfRunSEConfig:
             "model",
             "instances",
             "max_iterations",
+            "metric_higher_is_better",
             "local_memory",
             "prompt_config",
             "strategy",
@@ -427,4 +432,5 @@ class SEPerfRunSEConfig:
             strategy=strategy,
             extras=extras,
             global_memory_bank=gmb,
+            metric_higher_is_better=metric_higher_is_better,
         )
