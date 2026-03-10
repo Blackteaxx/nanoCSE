@@ -129,3 +129,6 @@ data/*
 output/*
 instances/livecodebench/
 configs_personal/
+
+# server 文件
+trajectories_evolve_server/

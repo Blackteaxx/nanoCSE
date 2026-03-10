@@ -69,7 +69,10 @@ def _invoke_run_single_instance(
 # Config assembly helpers
 # ---------------------------------------------------------------------------
 
-_OUTPUT_ROOT = os.environ.get("NANOCSE_OUTPUT_ROOT", "/tmp/nanocse_evolve_outputs")
+_OUTPUT_ROOT = os.environ.get(
+    "NANOCSE_OUTPUT_ROOT",
+    str(_SE_PERF_ROOT.parent / "trajectories_evolve_server"),
+)
 
 
 def _make_output_dir(instance_id: str) -> str:
