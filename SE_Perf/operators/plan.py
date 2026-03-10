@@ -9,10 +9,10 @@ Plan Operator (LLM-based)
 - 严格的 JSON 输出格式约束与校验，失败时重试；不足 K 条时使用回退策略补齐
 """
 
-import json
 import re
 import textwrap
 
+from core.utils.json_utils import robust_json_loads
 from perf_config import StepConfig
 
 from operators.base import InstanceTrajectories, OperatorResult, TemplateOperator
@@ -132,7 +132,7 @@ Required Count: {k}
         """解析并校验 JSON，确保数组长度为 k。"""
         frag = self._extract_json_fragment(message)
         try:
-            data = json.loads(frag)
+            data = robust_json_loads(frag)
         except Exception:
             return None
         arr = data.get("strategies") if isinstance(data, dict) else None

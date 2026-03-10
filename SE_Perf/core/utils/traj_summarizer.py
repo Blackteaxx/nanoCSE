@@ -4,9 +4,9 @@
 为trajectory pool生成轨迹总结的专用prompt系统
 """
 
-import json
 from typing import Any  # noqa: UP035
 
+from core.utils.json_utils import robust_json_loads
 from core.utils.se_logger import get_se_logger
 
 
@@ -152,14 +152,14 @@ Please provide your analysis in the JSON format specified in the system prompt."
 
         # 尝试直接解析完整JSON
         if content.startswith("{"):
-            return json.loads(content)
+            return robust_json_loads(content)
 
         # 尝试提取JSON片段进行解析
         start_idx = content.find("{")
         end_idx = content.rfind("}") + 1
         if start_idx >= 0 and end_idx > start_idx:
             json_content = content[start_idx:end_idx]
-            return json.loads(json_content)
+            return robust_json_loads(json_content)
 
         # 未找到可解析的JSON片段
         raise ValueError("响应中未找到可解析的JSON内容")

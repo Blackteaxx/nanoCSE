@@ -29,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from perf_config import SEPerfRunSEConfig
 from perf_run import run_single_instance
 
-
 # ---------------------------------------------------------------------------
 # 公共工具
 # ---------------------------------------------------------------------------
@@ -74,6 +73,7 @@ def _quiet_se_loggers() -> None:
     """
     try:
         from core.utils.log import set_stream_handler_levels
+
         set_stream_handler_levels(logging.WARNING)
     except Exception:
         pass
@@ -128,7 +128,8 @@ def _setup_batch_logger(batch_output_dir: Path) -> logging.Logger:
         fh = logging.FileHandler(batch_output_dir / "batch.log", encoding="utf-8")
         fh.setLevel(logging.DEBUG)
         fmt = logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S",
+            "%(asctime)s [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         fh.setFormatter(fmt)
         logger.addHandler(fh)
@@ -221,7 +222,9 @@ def _run_instances(
     # 预过滤 resume 跳过的实例
     if resume:
         pending_instances, skipped_results = _filter_resume(
-            instances, batch_output_dir, logger,
+            instances,
+            batch_output_dir,
+            logger,
         )
     else:
         pending_instances, skipped_results = instances, []
@@ -232,19 +235,13 @@ def _run_instances(
     failed_count = 0
 
     # 构建待提交任务列表
-    pending_tasks = [
-        (str(p), str(batch_output_dir / p.stem), p.stem)
-        for p in pending_instances
-    ]
+    pending_tasks = [(str(p), str(batch_output_dir / p.stem), p.stem) for p in pending_instances]
 
     if not pending_tasks:
         print(f"所有 {skipped_count} 个实例均已完成，无需执行")
         return all_results
 
-    print(
-        f"执行: {len(pending_tasks)} 个待执行, "
-        f"{skipped_count} 个已跳过, workers={max_workers}"
-    )
+    print(f"执行: {len(pending_tasks)} 个待执行, {skipped_count} 个已跳过, workers={max_workers}")
 
     pbar = tqdm(
         total=len(pending_tasks),
@@ -277,8 +274,10 @@ def _run_instances(
                 res = future.result()
             except Exception as e:
                 res = _make_result(
-                    inst_name, "error",
-                    str(batch_output_dir / inst_name), error=str(e),
+                    inst_name,
+                    "error",
+                    str(batch_output_dir / inst_name),
+                    error=str(e),
                 )
 
             if res["status"] == "success":
@@ -288,9 +287,7 @@ def _run_instances(
 
             all_results.append(res)
             pbar.update(1)
-            pbar.set_postfix_str(
-                f"✓{success_count} ✗{failed_count} ⊘{skipped_count} | done: {inst_name}"
-            )
+            pbar.set_postfix_str(f"✓{success_count} ✗{failed_count} ⊘{skipped_count} | done: {inst_name}")
             logger.info(
                 f"实例完成: {inst_name} | 状态: {res['status']} | "
                 f"耗时: {res.get('duration_s', 0)}s | "
@@ -313,9 +310,7 @@ def _run_instances(
         # 3. 关闭 executor，不等待
         executor.shutdown(wait=False, cancel_futures=True)
 
-        logger.warning(
-            f"用户中断 | 已完成: ✓{success_count} ✗{failed_count} ⊘{skipped_count}"
-        )
+        logger.warning(f"用户中断 | 已完成: ✓{success_count} ✗{failed_count} ⊘{skipped_count}")
         raise
 
     finally:
@@ -379,7 +374,8 @@ def _merge_preds(acc: dict, data: dict) -> None:
 
 
 def _aggregate_token_summary(
-    batch_output_dir: Path, results: list[dict],
+    batch_output_dir: Path,
+    results: list[dict],
 ) -> Path | None:
     """遍历所有实例的 token_usage.jsonl，生成 token_summary.json。"""
     total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -427,15 +423,16 @@ def _aggregate_token_summary(
         by_instance[res["instance_id"]] = inst
 
     out_path = batch_output_dir / "token_summary.json"
-    _write_json(out_path, {
-        "total": total,
-        "by_instance": by_instance,
-        "by_context": by_context,
-        "instance_count": instance_count,
-        "avg_tokens_per_instance": (
-            total["total_tokens"] // instance_count if instance_count > 0 else 0
-        ),
-    })
+    _write_json(
+        out_path,
+        {
+            "total": total,
+            "by_instance": by_instance,
+            "by_context": by_context,
+            "instance_count": instance_count,
+            "avg_tokens_per_instance": (total["total_tokens"] // instance_count if instance_count > 0 else 0),
+        },
+    )
     return out_path
 
 
@@ -458,16 +455,19 @@ def _generate_batch_summary(
             pass
 
     out_path = batch_output_dir / "batch_summary.json"
-    _write_json(out_path, {
-        "start_time": start_time,
-        "end_time": end_time,
-        "total_instances": len(results),
-        "success": success,
-        "failed": failed,
-        "skipped": skipped,
-        "results": results,
-        "token_summary": token_summary,
-    })
+    _write_json(
+        out_path,
+        {
+            "start_time": start_time,
+            "end_time": end_time,
+            "total_instances": len(results),
+            "success": success,
+            "failed": failed,
+            "skipped": skipped,
+            "results": results,
+            "token_summary": token_summary,
+        },
+    )
     return out_path
 
 
@@ -522,19 +522,24 @@ def run_batch(
 
     logger = _setup_batch_logger(batch_output_dir)
     logger.info(
-        f"批量执行开始: config={config_path}, instance_dir={instance_dir}, "
-        f"mode={mode}, max_workers={max_workers}"
+        f"批量执行开始: config={config_path}, instance_dir={instance_dir}, mode={mode}, max_workers={max_workers}"
     )
     logger.info(f"实例总数: {len(instances)}, 输出目录: {batch_output_dir}")
 
     # 批量执行
     try:
         all_results = _run_instances(
-            instances, config_path, batch_output_dir, mode, resume, max_workers, logger,
+            instances,
+            config_path,
+            batch_output_dir,
+            mode,
+            resume,
+            max_workers,
+            logger,
         )
     except KeyboardInterrupt:
         total_duration = round(time.time() - start_ts, 1)
-        print(f"\n=== 批量执行已中断 ===")
+        print("\n=== 批量执行已中断 ===")
         print(f"  已运行: {total_duration}s")
         print(f"  输出目录: {batch_output_dir}")
         print("  后处理已跳过，可使用 --resume 从断点继续")
@@ -546,12 +551,26 @@ def run_batch(
     end_time_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for label, path in [
-        ("all_final.json", _aggregate_instance_json(
-            batch_output_dir, all_results, "final.json", "all_final.json", _merge_final,
-        )),
-        ("all_preds.json", _aggregate_instance_json(
-            batch_output_dir, all_results, "preds.json", "all_preds.json", _merge_preds,
-        )),
+        (
+            "all_final.json",
+            _aggregate_instance_json(
+                batch_output_dir,
+                all_results,
+                "final.json",
+                "all_final.json",
+                _merge_final,
+            ),
+        ),
+        (
+            "all_preds.json",
+            _aggregate_instance_json(
+                batch_output_dir,
+                all_results,
+                "preds.json",
+                "all_preds.json",
+                _merge_preds,
+            ),
+        ),
         ("token_summary.json", _aggregate_token_summary(batch_output_dir, all_results)),
     ]:
         if path:
@@ -559,7 +578,10 @@ def run_batch(
             logger.info(f"已生成 {label}: {path}")
 
     summary_path = _generate_batch_summary(
-        batch_output_dir, all_results, start_time_str, end_time_str,
+        batch_output_dir,
+        all_results,
+        start_time_str,
+        end_time_str,
         batch_output_dir / "token_summary.json",
     )
     print(f"  已生成 batch_summary.json: {summary_path}")
@@ -568,15 +590,12 @@ def run_batch(
     # 打印最终摘要
     success, failed, skipped = _count_by_status(all_results)
     total_duration = round(time.time() - start_ts, 1)
-    print(f"\n=== 批量执行完成 ===")
+    print("\n=== 批量执行完成 ===")
     print(f"  总耗时: {total_duration}s")
     print(f"  实例总数: {len(all_results)}")
     print(f"  成功: {success}, 失败: {failed}, 跳过: {skipped}")
     print(f"  输出目录: {batch_output_dir}")
-    logger.info(
-        f"批量执行完成: 总耗时={total_duration}s, "
-        f"成功={success}, 失败={failed}, 跳过={skipped}"
-    )
+    logger.info(f"批量执行完成: 总耗时={total_duration}s, 成功={success}, 失败={failed}, 跳过={skipped}")
 
 
 # ---------------------------------------------------------------------------

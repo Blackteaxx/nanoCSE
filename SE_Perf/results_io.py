@@ -16,7 +16,6 @@ from run_models import PredictionEntry
 
 from perfagent.protocols import AgentResult
 
-
 # ---------------------------------------------------------------------------
 # 单迭代写入
 # ---------------------------------------------------------------------------
@@ -245,8 +244,7 @@ def log_token_usage(output_dir, logger):
         pass
 
 
-def print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger,
-                        *, higher_is_better: bool = False):
+def print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger, *, higher_is_better: bool = False):
     """打印和记录最终执行摘要。"""
     logger.info("所有任务执行完成")
     print("\n执行完成")

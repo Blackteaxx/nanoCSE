@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 from core.utils.global_memory_manager import GlobalMemoryManager
 from operators.base import OperatorContext
 from perf_config import SEPerfRunSEConfig, StepConfig

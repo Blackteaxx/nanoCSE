@@ -1,0 +1,162 @@
+
+# SE Configuration for MATH (Mathematical Reasoning)
+# Task: Solve math problems with evolutionary search
+
+task_type: math
+
+# MATH 评估: 1.0=正确, 0.0=错误 → 越大越好
+metric_higher_is_better: true
+
+model:
+  name:
+  api_base:
+  api_key:
+  max_output_tokens: 16384
+  temperature: 0.7
+
+operator_models:
+  name:
+  api_base:
+  api_key:
+  max_input_tokens: 16384
+  max_output_tokens: 16384
+  temperature: 0.7
+
+operator_selection_mode: weighted
+
+local_memory:
+  enabled: false
+  format_mode: short
+
+global_memory_bank:
+  enabled: false
+
+instances:
+  instances_dir: instances/
+
+output_dir: "trajectories_perf/math_{timestamp}"
+
+prompt_config:
+  plan:
+    system_prompt: |
+      You are a world-class mathematician. Your task is to design EXACTLY K distinct solution strategies for a given math problem.
+
+      Guidelines:
+      1. **Diversity**: The strategies MUST differ in mathematical approaches (e.g., algebraic manipulation, geometric reasoning, number theory, combinatorics, induction, casework, coordinate geometry, trigonometry, modular arithmetic, generating functions).
+      2. **Rigor**: Each strategy should lead to a complete, verifiable proof or derivation.
+      3. **Content**: Each strategy description must be a concise English paragraph including:
+         - The core mathematical approach and key insight.
+         - Which theorems, identities, or techniques to apply.
+         - The expected form of the final answer.
+      4. **Format**: Return the JSON object wrapped in a Markdown code block with the language tag 'json'.
+         - Structure:
+           ```json
+           {"strategies": [string, string, ...]}
+           ```
+         - The array must contain exactly K strings.
+         - NO conversational text outside the code block.
+    user_prompt_template: |
+      Instruction: Generate {k} diverse mathematical solution strategies.
+
+      Problem:
+      {problem_text}
+
+      Required Count: {k}
+    strategy_header: |
+      ### STRATEGY MODE: PLAN STRATEGY
+      You must strictly follow and implement the outlined mathematical approach below.
+      Show your complete step-by-step reasoning and put your final answer in \boxed{}.
+    fallback_patterns:
+      - "Use algebraic manipulation: set up equations from the given conditions, simplify systematically, and solve for the unknowns."
+      - "Apply geometric or visual reasoning: draw a diagram, identify key relationships between angles/lengths/areas, and derive the answer from geometric properties."
+      - "Use number theory techniques: analyze divisibility, modular arithmetic, or prime factorization to constrain and determine the answer."
+      - "Try casework or exhaustive analysis: enumerate possible cases based on constraints, solve each case, and combine results."
+      - "Apply combinatorial or counting arguments: use permutations, combinations, or inclusion-exclusion to count the desired quantity."
+
+  summarizer:
+    enable_summary: true
+    system_prompt: |
+      You are an AI assistant specialized in analyzing mathematical reasoning trajectories.
+
+      The sole objective is to produce a correct answer to a math problem. The evaluation is binary: 1.0 if the answer matches the ground truth, 0.0 otherwise.
+
+      Your goal is to summarize the agent's iterative attempt: what approaches were tried, which succeeded or failed, what mathematical errors were discovered, and how they were (or were not) resolved.
+
+      You will be given:
+      1. A problem description
+      2. A trajectory file (.tra) in JSON format with the agent's step-by-step reasoning
+      3. The final solution (use this as the definitive "final_solution" when present)
+
+      Return your analysis in JSON format with the following fields:
+
+      - "solution_name": A short nickname for the approach (e.g. "algebraic_v2", "geometric_proof").
+      - "approach_summary": A concise narrative of the agent's mathematical reasoning journey.
+      - "analysis": High-level insights from the trajectory.
+        - "best_strategy": Object describing the best correct approach.
+          - "high_level": Why this approach works in one sentence.
+          - "key_techniques": e.g. ["modular arithmetic", "casework", "induction"].
+        - "root_causes_of_failures": List of { "iteration": N, "cause": "what error led to incorrect answer" }.
+        - "key_learnings": Generalizable math problem solving insights.
+
+    user_prompt_template: |
+      Analyze the following math reasoning trajectory.
+
+      Problem description:
+      {problem_description}
+
+      Trajectory data:
+      {trajectory_content}
+
+      Final solution:
+      {solution_content}
+
+      Provide your analysis in the JSON format specified in the system prompt.
+
+  reflection_refine:
+    header: |
+      ### STRATEGY MODE: REFLECTION AND REFINE
+      Your previous attempt at solving this math problem did not produce the correct answer.
+      Analyze where your reasoning went wrong and fix it.
+    guidelines: |
+      ### REFINEMENT GUIDELINES
+      1. **Identify the Error**: Re-read the problem carefully. Did you misunderstand the question? Did you make a computational error? Did you miss a constraint?
+      2. **Check Intermediate Steps**: Verify each step of your calculation independently.
+      3. **Try Alternative Approaches**: If one method fails, consider a different technique (algebra vs geometry, direct vs indirect proof, etc.)
+      4. **Verify Edge Cases**: Consider special values (0, 1, negative numbers, extreme values).
+      5. **Double-Check Your Answer**: Before submitting, verify the answer satisfies all conditions in the problem.
+
+  crossover:
+    header: |
+      ### STRATEGY MODE: CROSSOVER
+      You are given two previous attempts at solving a math problem. Combine the correct reasoning from both to produce a correct solution.
+    guidelines: |
+      ### SYNTHESIS GUIDELINES
+      1. **Compare Approaches**: Identify which steps in each attempt are mathematically correct.
+      2. **Find Complementary Strengths**: One approach may correctly set up the problem while the other has a better solution technique.
+      3. **Avoid Inherited Errors**: Do not copy incorrect reasoning from either attempt.
+      4. **Unify the Solution**: Produce a single coherent mathematical argument, not a patchwork.
+
+max_iterations: 1
+
+base_config: "configs/perf_configs/config_math.yaml"
+
+strategy:
+  iterations:
+    - operator: "plan"
+      num: 3
+      trajectory_labels: ["sol1", "sol2", "sol3"]
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol4"
+
+    - operator: "crossover"
+      trajectory_label: "sol5"
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol6"
+
+    - operator: "crossover"
+      trajectory_label: "sol7"
+
+    - operator: "reflection_refine"
+      trajectory_label: "sol8"

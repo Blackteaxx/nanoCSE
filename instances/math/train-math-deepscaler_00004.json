@@ -1,0 +1,7 @@
+{
+  "instance_id": "train-math-deepscaler_00004",
+  "problem": "In the diagram below, $BC$ is 8 cm.  In square centimeters, what is the area of triangle $ABC$?\n\n[asy]\ndefaultpen(linewidth(0.7));\ndraw((0,0)--(16,0)--(23,20)--cycle);\ndraw((16,0)--(23,0)--(23,20),dashed);\nlabel(\"8 cm\",(8,0),S);\nlabel(\"10 cm\",(23,10),E);\nlabel(\"$A$\",(23,20),N);\nlabel(\"$B$\",(0,0),SW);\nlabel(\"$C$\",(16,0),SE);\n[/asy]",
+  "ground_truth": "4",
+  "data_source": "train-math-deepscaler",
+  "ability": "math"
+}

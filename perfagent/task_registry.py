@@ -28,7 +28,8 @@ if TYPE_CHECKING:
 _TASK_RUNNERS: dict[str, str] = {
     "effibench": "perfagent.tasks.effibench.EffiBenchRunner",
     "livecodebench": "perfagent.tasks.livecodebench.LiveCodeBenchRunner",
-    "aime": "perfagent.tasks.aime.AIMERunner",
+    "math": "perfagent.tasks.math_task.MathRunner",
+    "aime": "perfagent.tasks.math_task.MathRunner",
 }
 
 

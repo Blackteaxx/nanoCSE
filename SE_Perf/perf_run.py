@@ -29,14 +29,13 @@ from core.utils.global_memory_manager import GlobalMemoryManager
 from core.utils.local_memory_manager import LocalMemoryManager
 from core.utils.se_logger import get_se_logger, setup_se_logging
 from core.utils.traj_pool_manager import TrajPoolManager
-from perf_config import LocalMemoryConfig, SEPerfRunSEConfig
-
-from perfagent.task_registry import create_task_runner
 
 # 从拆分模块导入功能函数
 from iteration_executor import execute_iteration
+from perf_config import LocalMemoryConfig, SEPerfRunSEConfig
 from results_io import log_token_usage, print_final_summary
-from run_helpers import build_perf_agent_config, retrieve_global_memory
+
+from perfagent.task_registry import create_task_runner
 
 # ----------------------------------------------------------------------------
 # 单实例执行核心函数
@@ -212,8 +211,9 @@ def run_single_instance(
 
         # 6. 最终汇总
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print_final_summary(timestamp, log_file, output_dir, traj_pool_manager, logger,
-                            higher_is_better=metric_higher_is_better)
+        print_final_summary(
+            timestamp, log_file, output_dir, traj_pool_manager, logger, higher_is_better=metric_higher_is_better
+        )
 
         result["status"] = "success"
         result["best_metric"] = _read_best_metric(output_dir, higher_is_better=metric_higher_is_better)

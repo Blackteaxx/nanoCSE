@@ -1,0 +1,7 @@
+{
+  "instance_id": "math_dapo_00006",
+  "problem": "Analyze and solve the following math problem step by step. \n\nThe area of square $ABCD$ is 100 square centimeters, and $AE = 2$ cm. What is the area of square $EFGH$, in square centimeters?\n\nPlease output the final answer in the following text format, the answer format must be: \\boxed{'The final answer goes here.'}.",
+  "ground_truth": "68",
+  "data_source": "math_dapo",
+  "ability": "MATH"
+}

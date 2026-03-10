@@ -44,7 +44,7 @@ prompt_config:
 max_iterations: 1
 
 # 基础配置引用
-base_config: "configs/perf_configs/config_aime.yaml"
+base_config: "configs/perf_configs/config_math.yaml"
 
 # 策略编排
 strategy:
