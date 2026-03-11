@@ -11,15 +11,15 @@ model:
   name:
   api_base:
   api_key:
-  max_output_tokens: 16384
+  max_output_tokens: 8192
   temperature: 0.7
 
 operator_models:
   name:
   api_base:
   api_key:
-  max_input_tokens: 16384
-  max_output_tokens: 16384
+  max_input_tokens: 5000
+  max_output_tokens: 8192
   temperature: 0.7
 
 operator_selection_mode: weighted
@@ -138,25 +138,17 @@ prompt_config:
 
 max_iterations: 1
 
-base_config: "configs/perf_configs/config_math.yaml"
+base_config: "/workspace/RL-CSE/RL-CSE/nanoCSE/configs/perf_configs/config_math.yaml"
 
 strategy:
   iterations:
     - operator: "plan"
-      num: 3
-      trajectory_labels: ["sol1", "sol2", "sol3"]
+      num: 2
+      trajectory_labels: ["sol1", "sol2"]
 
     - operator: "reflection_refine"
+      trajectory_label: "sol3"
+
+    - operator: "crossover"
       trajectory_label: "sol4"
 
-    - operator: "crossover"
-      trajectory_label: "sol5"
-
-    - operator: "reflection_refine"
-      trajectory_label: "sol6"
-
-    - operator: "crossover"
-      trajectory_label: "sol7"
-
-    - operator: "reflection_refine"
-      trajectory_label: "sol8"

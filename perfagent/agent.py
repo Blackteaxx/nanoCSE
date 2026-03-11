@@ -68,7 +68,14 @@ class PerfAgent:
     使用 AgentRequest/AgentResult 协议与 SE_Perf 层通信。
     """
 
-    def __init__(self, config: PerfAgentConfig, task_runner: BaseTaskRunner | None = None):
+    def __init__(
+        self,
+        config: PerfAgentConfig,
+        task_runner: BaseTaskRunner | None = None,
+        token_log_path: str | None = None,
+        io_log_path: str | None = None,
+        iteration_index: int | None = None,
+    ):
         self.config = config
         self.task_runner = task_runner
 
@@ -96,7 +103,11 @@ class PerfAgent:
                 log_inputs_outputs=self.config.model.log_inputs_outputs,
                 log_sanitize=self.config.model.log_sanitize,
                 request_timeout=self.config.model.request_timeout,
+                token_log_path=token_log_path,
+                io_jsonl_path=io_log_path,
             )
+            if iteration_index is not None:
+                self.llm_client.set_iteration_index(iteration_index)
 
         # 设置日志：统一绑定到当前 run 的 log_dir 下的 perfagent.log
         # 同一算子多结果时（如 Plan 出 5 个 sol）会多次执行 PerfAgent，每次 log_dir 为 iteration_N/instance_id。

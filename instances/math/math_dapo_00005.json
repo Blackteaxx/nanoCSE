@@ -1,7 +1,0 @@
-{
-  "instance_id": "math_dapo_00005",
-  "problem": "Analyze and solve the following math problem step by step. \n\n已知两条直线 $l_{1}: y=2, l_{2}: y=4$, 设函数 $y=3^{x}$ 的图像与 $l_{1} 、 l_{2}$ 分别交于点 $A 、 B$, 函数 $y=5^{x}$ 的图像与 $l_{1} 、 l_{2}$ 分别交于点 $C 、 D$. 则直线 $A B$ 与 $C D$ 的交点的横、纵坐标之和是多少。\n\nPlease output the final answer in the following text format, the answer format must be: \\boxed{'The final answer goes here.'}.",
-  "ground_truth": "0",
-  "data_source": "math_dapo",
-  "ability": "MATH"
-}

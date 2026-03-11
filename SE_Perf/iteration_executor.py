@@ -42,6 +42,9 @@ def run_single_perfagent(
     logger,
     problem_description: str | None = None,
     task_runner: BaseTaskRunner | None = None,
+    token_log_path: str | None = None,
+    io_log_path: str | None = None,
+    iteration_index: int | None = None,
 ) -> AgentResult:
     """构建 AgentRequest 并直接调用 PerfAgent.run_with_request()。
 
@@ -76,7 +79,13 @@ def run_single_perfagent(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        agent = PerfAgent(config, task_runner=task_runner)
+        agent = PerfAgent(
+            config,
+            task_runner=task_runner,
+            token_log_path=token_log_path,
+            io_log_path=io_log_path,
+            iteration_index=iteration_index,
+        )
         result = agent.run_with_request(request)
         logger.info(
             f"PerfAgent 执行完成: instance={instance_id}, "
@@ -188,6 +197,8 @@ def execute_single_run(
     mode: str,
     logger,
     task_runner: BaseTaskRunner | None = None,
+    token_log_path: str | None = None,
+    io_log_path: str | None = None,
 ) -> None:
     """执行单次 PerfAgent 运行并后处理。"""
     iter_dir = Path(output_dir) / f"iteration_{iteration_idx}"
@@ -231,6 +242,9 @@ def execute_single_run(
         logger=logger,
         problem_description=problem_description,
         task_runner=task_runner,
+        token_log_path=token_log_path,
+        io_log_path=io_log_path,
+        iteration_index=iteration_idx,
     )
 
     # 写入文件（用于持久化和调试）
@@ -282,6 +296,8 @@ def execute_iteration(
     mode: str,
     logger,
     task_runner: BaseTaskRunner | None = None,
+    token_log_path: str | None = None,
+    io_log_path: str | None = None,
 ) -> int:
     """执行单个迭代步骤，返回下一个迭代索引。
 
@@ -301,7 +317,11 @@ def execute_iteration(
     instance_entry = InstanceTrajectories.from_dict(raw_entry)
 
     # 构建算子上下文
-    op_context = build_operator_context(se_cfg, step)
+    op_context = build_operator_context(
+        se_cfg, step,
+        token_log_path=token_log_path,
+        io_log_path=io_log_path,
+    )
 
     # 执行算子
     op_results = run_operator(
@@ -334,6 +354,8 @@ def execute_iteration(
             mode=mode,
             logger=logger,
             task_runner=task_runner,
+            token_log_path=token_log_path,
+            io_log_path=io_log_path,
         )
         iteration_idx += 1
 

@@ -39,6 +39,8 @@ class LLMClient:
         log_inputs_outputs: bool = True,
         log_sanitize: bool = True,
         request_timeout: float = 60.0,
+        token_log_path: str | Path | None = None,
+        io_jsonl_path: str | Path | None = None,
     ):
         """
         初始化LLM客户端
@@ -49,20 +51,25 @@ class LLMClient:
             retry_delay: 每次重试的等待秒数
             io_log_path: LLM 输入/输出日志文件路径
             log_inputs_outputs: 是否记录原始输入输出
+            token_log_path: token 统计日志路径，优先使用显式参数，回退到环境变量
+            io_jsonl_path: LLM I/O jsonl 日志路径，优先使用显式参数，回退到环境变量
         """
         self.config = model_config
         # 统一使用文件日志（带 emoji），与 IO 日志同目录
         self.io_log_path = Path(io_log_path) if io_log_path else Path("./logs/llm_io.log")
         # Logger 名称需含迭代信息（与 agent 一致），否则同一实例多迭代时复用同一 logger，日志全进 iteration_1
         parent_parts = self.io_log_path.parent.parts
-        task_suffix = "_".join(parent_parts[-2:]) if len(parent_parts) >= 2 else (self.io_log_path.parent.name or "default")
+        task_suffix = (
+            "_".join(parent_parts[-2:]) if len(parent_parts) >= 2 else (self.io_log_path.parent.name or "default")
+        )
         logger_name = f"perfagent.llm_client.{task_suffix}"
         get_se_logger(logger_name, self.io_log_path, emoji="🤖", also_stream=False)
         self.logger = logging.getLogger(logger_name)
-        self.token_log_path = os.getenv("SE_TOKEN_LOG_PATH")
+        self.token_log_path = str(token_log_path) if token_log_path else os.getenv("SE_TOKEN_LOG_PATH")
         self._token_lock = threading.Lock()
-        self.io_jsonl_path = os.getenv("SE_LLM_IO_LOG_PATH")
+        self.io_jsonl_path = str(io_jsonl_path) if io_jsonl_path else os.getenv("SE_LLM_IO_LOG_PATH")
         self._io_lock = threading.Lock()
+        self._iteration_index: int | str | None = None
 
         # 优先使用配置中的增强参数
         self.max_retries = int(model_config.get("max_retries", max_retries))
@@ -87,6 +94,22 @@ class LLMClient:
         )
 
         self.logger.info(f"初始化LLM客户端: {self.config['name']}")
+
+    def set_iteration_index(self, idx: int | str | None) -> None:
+        """设置当前迭代索引（线程安全的替代环境变量方案）。"""
+        self._iteration_index = idx
+
+    def _get_iteration_index(self) -> int | str | None:
+        """获取迭代索引，优先使用实例属性，回退到环境变量。"""
+        if self._iteration_index is not None:
+            return self._iteration_index
+        env = os.getenv("SE_ITERATION_INDEX")
+        if env is not None:
+            try:
+                return int(env)
+            except Exception:
+                return env
+        return None
 
     def _is_retryable_error(self, e: Exception) -> bool:
         if isinstance(e, (RateLimitError, APITimeoutError, APIConnectionError)):
@@ -250,12 +273,9 @@ class LLMClient:
                                     len(str(m.get("content", ""))) for m in messages if isinstance(m, dict)
                                 ),
                             }
-                            iter_env = os.getenv("SE_ITERATION_INDEX")
-                            if iter_env is not None:
-                                try:
-                                    entry["iteration_index"] = int(iter_env)
-                                except Exception:
-                                    entry["iteration_index"] = iter_env
+                            iter_idx = self._get_iteration_index()
+                            if iter_idx is not None:
+                                entry["iteration_index"] = iter_idx
                             with self._token_lock:
                                 with open(self.token_log_path, "a", encoding="utf-8") as f:
                                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -274,12 +294,9 @@ class LLMClient:
                             "messages": messages,
                             "response": content,
                         }
-                        iter_env = os.getenv("SE_ITERATION_INDEX")
-                        if iter_env is not None:
-                            try:
-                                io_entry["iteration_index"] = int(iter_env)
-                            except Exception:
-                                io_entry["iteration_index"] = iter_env
+                        iter_idx = self._get_iteration_index()
+                        if iter_idx is not None:
+                            io_entry["iteration_index"] = iter_idx
                         if getattr(response, "usage", None):
                             io_entry["usage"] = {
                                 "prompt_tokens": getattr(response.usage, "prompt_tokens", None),

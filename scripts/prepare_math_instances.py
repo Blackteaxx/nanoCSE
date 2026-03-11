@@ -107,7 +107,14 @@ def main():
         if not problem or not gt:
             continue
 
-        instance_id = f"{ds}_{idx:05d}"
+        ei = _to_python(row.get("extra_info", {}))
+        if isinstance(ei, str):
+            try:
+                ei = json.loads(ei)
+            except (json.JSONDecodeError, TypeError):
+                ei = {}
+        raw_idx = ei.get("index", idx) if isinstance(ei, dict) else idx
+        instance_id = f"{ds}_{int(raw_idx):05d}"
 
         instance = {
             "instance_id": instance_id,

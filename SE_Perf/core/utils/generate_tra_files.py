@@ -71,7 +71,7 @@ def main():
     else:
         log_dir = target_path
 
-    log_file = setup_se_logging(log_dir)
+    log_file, _handler_id = setup_se_logging(log_dir)
     logger = get_se_logger("generate_tra_files", emoji="🎬")
 
     print("=== SE框架 - .tra文件生成工具 ===")

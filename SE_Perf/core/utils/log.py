@@ -14,6 +14,46 @@ _SET_UP_LOGGERS: set[str] = set()
 _ADDITIONAL_HANDLERS: dict[str, logging.Handler] = {}
 _LOG_LOCK = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Thread-scoped handler filtering for concurrent safety
+# ---------------------------------------------------------------------------
+_thread_local = threading.local()
+
+
+class _ScopedFileFilter(logging.Filter):
+    """Only emit log records when this handler's ID is active in the calling thread.
+
+    When no scoping has been configured on the current thread (i.e.
+    ``enter_handler_scope`` was never called), the filter defaults to *allow*
+    so that single-threaded / CLI usage is unaffected.
+    """
+
+    def __init__(self, handler_id: str):
+        super().__init__()
+        self.handler_id = handler_id
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        active: set[str] | None = getattr(_thread_local, "active_handler_ids", None)
+        if active is None:
+            return True
+        return self.handler_id in active
+
+
+def enter_handler_scope(handler_id: str) -> None:
+    """Mark *handler_id* as active for the current thread."""
+    active: set[str] | None = getattr(_thread_local, "active_handler_ids", None)
+    if active is None:
+        active = set()
+        _thread_local.active_handler_ids = active
+    active.add(handler_id)
+
+
+def exit_handler_scope(handler_id: str) -> None:
+    """Remove *handler_id* from the current thread's active set."""
+    active: set[str] | None = getattr(_thread_local, "active_handler_ids", None)
+    if active is not None:
+        active.discard(handler_id)
+
 logging.TRACE = 5  # type: ignore
 logging.addLevelName(logging.TRACE, "TRACE")  # type: ignore
 
@@ -100,6 +140,11 @@ def add_file_handler(
     """Adds a file handler to all loggers that we have set up
     and all future loggers that will be set up with `get_logger`.
 
+    A ``_ScopedFileFilter`` is attached so that in concurrent (multi-thread)
+    scenarios each thread only writes to the file handlers it owns.  Call
+    ``enter_handler_scope`` / ``exit_handler_scope`` (or the higher-level
+    ``cleanup_file_handler``) to manage scoping.
+
     Args:
         filter: If str: Check that the logger name contains the filter string.
             If callable: Check that the logger name satisfies the condition returned by the callable.
@@ -114,8 +159,11 @@ def add_file_handler(
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     handler.setFormatter(formatter)
     handler.setLevel(_interpret_level(level))
+    if not id_:
+        id_ = str(uuid.uuid4())
+    handler.addFilter(_ScopedFileFilter(id_))
+    enter_handler_scope(id_)
     with _LOG_LOCK:
-        # Lock because other thread might be modifying the _SET_UP_LOGGERS set
         for name in _SET_UP_LOGGERS:
             if filter is not None:
                 if isinstance(filter, str) and filter not in name:
@@ -125,20 +173,32 @@ def add_file_handler(
             logger = logging.getLogger(name)
             logger.addHandler(handler)
     handler.my_filter = filter  # type: ignore
-    if not id_:
-        id_ = str(uuid.uuid4())
     _ADDITIONAL_HANDLERS[id_] = handler
     return id_
 
 
 def remove_file_handler(id_: str) -> None:
     """Remove a file handler by its id."""
-    handler = _ADDITIONAL_HANDLERS.pop(id_)
+    handler = _ADDITIONAL_HANDLERS.pop(id_, None)
+    if handler is None:
+        return
     with _LOG_LOCK:
-        # Lock because other thread might be modifying the _SET_UP_LOGGERS set
         for log_name in _SET_UP_LOGGERS:
             logger = logging.getLogger(log_name)
             logger.removeHandler(handler)
+    try:
+        handler.close()
+    except Exception:
+        pass
+
+
+def cleanup_file_handler(id_: str) -> None:
+    """Exit handler scope for this thread and remove the handler globally.
+
+    Safe to call multiple times or with an invalid *id_*.
+    """
+    exit_handler_scope(id_)
+    remove_file_handler(id_)
 
 
 def _add_logger_name_to_stream_handler(logger: logging.Logger) -> None:

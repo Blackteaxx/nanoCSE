@@ -102,7 +102,12 @@ def build_perf_agent_config(
     return config
 
 
-def build_operator_context(se_cfg: SEPerfRunSEConfig, step: StepConfig) -> OperatorContext:
+def build_operator_context(
+    se_cfg: SEPerfRunSEConfig,
+    step: StepConfig,
+    token_log_path: str | None = None,
+    io_log_path: str | None = None,
+) -> OperatorContext:
     """从 SE 配置和步骤配置构建 OperatorContext。"""
     # prompt_config: 步骤级覆盖 > SE 全局配置；OperatorContext 仍使用 dict 以兼容算子
     if step.prompt_config is not None:
@@ -114,4 +119,6 @@ def build_operator_context(se_cfg: SEPerfRunSEConfig, step: StepConfig) -> Opera
         prompt_config=pc,
         selection_mode=step.selection_mode or "weighted",
         metric_higher_is_better=se_cfg.metric_higher_is_better,
+        token_log_path=token_log_path,
+        io_log_path=io_log_path,
     )

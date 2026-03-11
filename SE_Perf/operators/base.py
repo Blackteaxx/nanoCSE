@@ -122,12 +122,16 @@ class OperatorContext:
         prompt_config: 提示词配置。
         selection_mode: 默认轨迹选择模式（"weighted" 或 "random"）。
         metric_higher_is_better: metric 比较方向，True=越大越好，False=越小越好（默认）。
+        token_log_path: token 统计日志路径（显式传递以避免并发时环境变量竞争）。
+        io_log_path: LLM I/O 日志路径。
     """
 
     model_config: dict[str, Any] = field(default_factory=dict)
     prompt_config: dict[str, Any] = field(default_factory=dict)
     selection_mode: str = "weighted"
     metric_higher_is_better: bool = False
+    token_log_path: str | None = None
+    io_log_path: str | None = None
 
 
 @dataclass
@@ -175,7 +179,11 @@ class BaseOperator(abc.ABC):
         if self.llm_client is not None:
             return
         model_config_data = self.context.model_config
-        self.llm_client = LLMClient(model_config_data)
+        self.llm_client = LLMClient(
+            model_config_data,
+            token_log_path=self.context.token_log_path,
+            io_log_path=self.context.io_log_path,
+        )
         self.logger.info(f"LLM客户端已初始化: {model_config_data.get('name')}")
 
     def _call_llm_api(self, prompt: str, system_prompt: str = "") -> str:

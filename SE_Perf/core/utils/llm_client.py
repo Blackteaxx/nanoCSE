@@ -6,16 +6,16 @@ LLM客户端模块
 
 import json
 import os
+import random
 import re
 import threading
 import time
-import random
 from typing import Any  # noqa: UP035
 
 from openai import OpenAI
 
 try:
-    from openai import APIError, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
+    from openai import APIConnectionError, APIError, APITimeoutError, BadRequestError, RateLimitError
 except Exception:
     APIError = Exception
     RateLimitError = Exception
@@ -29,19 +29,27 @@ from core.utils.se_logger import get_se_logger
 class LLMClient:
     """LLM客户端，支持多种模型和API端点"""
 
-    def __init__(self, model_config: dict[str, Any]):
+    def __init__(
+        self,
+        model_config: dict[str, Any],
+        token_log_path: str | None = None,
+        io_log_path: str | None = None,
+    ):
         """
         初始化LLM客户端
 
         Args:
             model_config: 模型配置字典，包含name, api_base, api_key等
+            token_log_path: token 统计日志路径，优先使用显式参数，回退到环境变量
+            io_log_path: LLM I/O 日志路径，优先使用显式参数，回退到环境变量
         """
         self.config = model_config
         self.logger = get_se_logger("llm_client", emoji="🤖")
-        self.token_log_path = os.getenv("SE_TOKEN_LOG_PATH")
+        self.token_log_path = token_log_path or os.getenv("SE_TOKEN_LOG_PATH")
         self._token_lock = threading.Lock()
-        self.io_log_path = os.getenv("SE_LLM_IO_LOG_PATH")
+        self.io_log_path = io_log_path or os.getenv("SE_LLM_IO_LOG_PATH")
         self._io_lock = threading.Lock()
+        self._iteration_index: int | str | None = None
 
         # 验证必需的配置参数
         required_keys = ["name", "api_base", "api_key"]
@@ -64,6 +72,22 @@ class LLMClient:
         )
 
         self.logger.info(f"初始化LLM客户端: {self.config['name']}")
+
+    def set_iteration_index(self, idx: int | str | None) -> None:
+        """设置当前迭代索引（线程安全的替代环境变量方案）。"""
+        self._iteration_index = idx
+
+    def _get_iteration_index(self) -> int | str | None:
+        """获取迭代索引，优先使用实例属性，回退到环境变量。"""
+        if self._iteration_index is not None:
+            return self._iteration_index
+        env = os.getenv("SE_ITERATION_INDEX")
+        if env is not None:
+            try:
+                return int(env)
+            except Exception:
+                return env
+        return None
 
     def _is_retryable_error(self, e: Exception) -> bool:
         if isinstance(e, (RateLimitError, APITimeoutError, APIConnectionError)):
@@ -167,12 +191,9 @@ class LLMClient:
                                     len(str(m.get("content", ""))) for m in messages if isinstance(m, dict)
                                 ),
                             }
-                            iter_env = os.getenv("SE_ITERATION_INDEX")
-                            if iter_env is not None:
-                                try:
-                                    entry["iteration_index"] = int(iter_env)
-                                except Exception:
-                                    entry["iteration_index"] = iter_env
+                            iter_idx = self._get_iteration_index()
+                            if iter_idx is not None:
+                                entry["iteration_index"] = iter_idx
                             with self._token_lock:
                                 with open(self.token_log_path, "a", encoding="utf-8") as f:
                                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -191,12 +212,9 @@ class LLMClient:
                             "messages": messages,
                             "response": content,
                         }
-                        iter_env = os.getenv("SE_ITERATION_INDEX")
-                        if iter_env is not None:
-                            try:
-                                io_entry["iteration_index"] = int(iter_env)
-                            except Exception:
-                                io_entry["iteration_index"] = iter_env
+                        iter_idx = self._get_iteration_index()
+                        if iter_idx is not None:
+                            io_entry["iteration_index"] = iter_idx
                         if getattr(response, "usage", None):
                             io_entry["usage"] = {
                                 "prompt_tokens": getattr(response.usage, "prompt_tokens", None),

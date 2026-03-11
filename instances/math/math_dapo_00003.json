@@ -1,7 +1,0 @@
-{
-  "instance_id": "math_dapo_00003",
-  "problem": "Analyze and solve the following math problem step by step. \n\n对有限非空实数集 $X$, 记 $X$ 的元素个数为 $|X|$ ，均有\n$f(X)=\\frac{1}{|X|} \\sum_{a \\in X} a$.\n集合对 $(A, B)$ 满足\n$A \\cup B=\\{1,2, \\cdots, 100\\}, A \\cap B=\\varnothing$,\n且 $1 \\leqslant|A| \\leqslant 98$.\n任取 $p \\in B$, 令\n$A_{p}=A \\cup\\{p\\}, B_{p}=\\{x \\mid x \\in B, x \\neq p\\}$.\n对所有满足上述条件的集合对 $(A, B)$ 与 $p \\in$ $B$, 求 $\\left(f\\left(A_{p}\\right)-f(A)\\right)\\left(f\\left(B_{p}\\right)-f(B)\\right)$ 的最大值.原始的答案是\\frac{m}{n}的形式，其中m、n是互质的。请给出最终m + n的值\n\nPlease output the final answer in the following text format, the answer format must be: \\boxed{'The final answer goes here.'}.",
-  "ground_truth": "821",
-  "data_source": "math_dapo",
-  "ability": "MATH"
-}

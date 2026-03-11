@@ -1,7 +1,0 @@
-{
-  "instance_id": "math_dapo_00002",
-  "problem": "Analyze and solve the following math problem step by step. \n\nIf the sum $1 + 2 + 3 + \\cdots + K$ is a perfect square $N^2$ and if $N$ is less than $100$, find all possible values for $K$. The original answer is in the form of $k_1, k_2, k_3$. Please give the sum of $k_1, k_2, k_3$.\n\nPlease output the final answer in the following text format, the answer format must be: \\boxed{'The final answer goes here.'}.",
-  "ground_truth": "58",
-  "data_source": "math_dapo",
-  "ability": "MATH"
-}

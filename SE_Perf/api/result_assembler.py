@@ -21,6 +21,19 @@ from .schemas import (
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_metric(value: float | str | None) -> float | str | None:
+    """Replace non-finite floats (inf, -inf, nan) with ``None``."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (ValueError, TypeError):
+        return value
+    if not math.isfinite(v):
+        return None
+    return v
+
+
 def _read_preds(output_dir: Path) -> list[CandidateInfo]:
     """Parse the aggregated ``preds.json`` into a list of candidates."""
     preds_path = output_dir / "preds.json"
@@ -40,7 +53,7 @@ def _read_preds(output_dir: Path) -> list[CandidateInfo]:
             candidates.append(
                 CandidateInfo(
                     solution=entry.get("solution", ""),
-                    metric=entry.get("metric"),
+                    metric=_sanitize_metric(entry.get("metric")),
                     iteration=entry.get("iteration", 0),
                     success=entry.get("success", False),
                     artifacts=entry.get("artifacts") or {},
@@ -187,6 +200,8 @@ def assemble_response(
     out_path = Path(output_dir)
     candidates = _read_preds(out_path)
     _enrich_candidates_from_pool(candidates, out_path)
+    for c in candidates:
+        c.metric = _sanitize_metric(c.metric)
     best = _pick_best(candidates, higher_is_better=higher_is_better)
     token_usage = _read_token_usage(out_path)
     traj_summary = _read_traj_pool_summary(out_path) if return_summary else None

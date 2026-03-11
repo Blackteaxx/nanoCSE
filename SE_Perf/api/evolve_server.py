@@ -7,7 +7,7 @@ Wraps ``perf_run.run_single_instance()`` as a ``POST /v1/evolve`` endpoint.
 Usage::
 
     # Start from nanoCSE/SE_Perf directory:
-    python -m api.evolve_server --host 0.0.0.0 --port 8800
+    python -m api.evolve_server --host 0.0.0.0 --port 8800 --workers 64
 
     # Or with uvicorn directly:
     cd nanoCSE/SE_Perf && uvicorn api.evolve_server:app --host 0.0.0.0 --port 8800
@@ -30,7 +30,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import uvicorn
 import yaml
 from fastapi import FastAPI, HTTPException
 
@@ -165,7 +164,7 @@ async def healthz():
 
 
 @app.post("/v1/evolve", response_model=EvolveResponse)
-async def evolve(req: EvolveRequest) -> EvolveResponse:
+def evolve(req: EvolveRequest) -> EvolveResponse:
     """Run a single evolutionary search instance and return the results."""
 
     # Resolve instance file path
@@ -225,6 +224,8 @@ async def evolve(req: EvolveRequest) -> EvolveResponse:
 
 def main():
     import argparse
+    import signal
+    import subprocess
 
     parser = argparse.ArgumentParser(description="nanoCSE Evolve HTTP Service")
     parser.add_argument("--host", default="0.0.0.0")
@@ -232,12 +233,29 @@ def main():
     parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
 
-    uvicorn.run(
-        "api.evolve_server:app",
-        host=args.host,
-        port=args.port,
-        workers=args.workers,
+    server_proc = subprocess.Popen(
+        [
+            sys.executable, "-m", "uvicorn",
+            "api.evolve_server:app",
+            "--host", args.host,
+            "--port", str(args.port),
+            "--workers", str(args.workers),
+        ],
+        start_new_session=True,
     )
+
+    def _force_shutdown(signum, frame):
+        print("\nForce-killing all server processes...", flush=True)
+        try:
+            os.killpg(os.getpgid(server_proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _force_shutdown)
+    signal.signal(signal.SIGTERM, _force_shutdown)
+
+    sys.exit(server_proc.wait())
 
 
 if __name__ == "__main__":

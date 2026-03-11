@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from core.global_memory.utils.config import GlobalMemoryConfig
 from core.utils.global_memory_manager import GlobalMemoryManager
 from core.utils.local_memory_manager import LocalMemoryManager
-from core.utils.se_logger import get_se_logger, setup_se_logging
+from core.utils.se_logger import cleanup_se_logging, get_se_logger, setup_se_logging
 from core.utils.traj_pool_manager import TrajPoolManager
 
 # 从拆分模块导入功能函数
@@ -72,6 +72,7 @@ def run_single_instance(
         "best_metric": None,
     }
 
+    handler_id: str | None = None
     try:
         # 1. 加载配置（可复用外部传入的 se_cfg）
         if se_cfg is None:
@@ -106,7 +107,7 @@ def run_single_instance(
         # 3. 准备输出环境
         # 如果 final.json 存在，认为任务已完成
         if (Path(output_dir) / "final.json").exists():
-            log_file = setup_se_logging(output_dir)
+            log_file, handler_id = setup_se_logging(output_dir)
             logger = get_se_logger("perf_run", emoji="⚡")
             print("检测到任务已完成，跳过执行")
             logger.info("检测到任务已完成，直接结束")
@@ -123,16 +124,19 @@ def run_single_instance(
         except Exception as e:
             print(f"清空输出目录失败: {e}")
 
-        log_file = setup_se_logging(output_dir)
+        log_file, handler_id = setup_se_logging(output_dir)
         logger = get_se_logger("perf_run", emoji="⚡")
 
         logger.info(f"启动执行: config={config_path}, instance={instance_path}, 模式: {mode}")
         logger.info(f"实例名称: {instance_name}")
         logger.info(f"输出目录: {output_dir}")
 
-        # Token统计与LLM I/O日志文件路径
-        os.environ["SE_TOKEN_LOG_PATH"] = str(Path(output_dir) / "token_usage.jsonl")
-        os.environ["SE_LLM_IO_LOG_PATH"] = str(Path(output_dir) / "llm_io.jsonl")
+        # Token统计与LLM I/O日志文件路径（显式传递，避免并发时环境变量竞争）
+        token_log_path = str(Path(output_dir) / "token_usage.jsonl")
+        io_log_path = str(Path(output_dir) / "llm_io.jsonl")
+        # 保留环境变量设置用于向后兼容 CLI 模式，但核心路径通过显式参数传递
+        os.environ["SE_TOKEN_LOG_PATH"] = token_log_path
+        os.environ["SE_LLM_IO_LOG_PATH"] = io_log_path
 
         # 4. 初始化核心组件
 
@@ -141,7 +145,11 @@ def run_single_instance(
         try:
             from core.utils.llm_client import LLMClient
 
-            llm_client = LLMClient(se_cfg.model.to_dict())
+            llm_client = LLMClient(
+                se_cfg.model.to_dict(),
+                token_log_path=token_log_path,
+                io_log_path=io_log_path,
+            )
         except Exception as e:
             logger.warning(f"LLM客户端初始化失败: {e}")
 
@@ -203,6 +211,8 @@ def run_single_instance(
                 mode=mode,
                 logger=logger,
                 task_runner=task_runner,
+                token_log_path=token_log_path,
+                io_log_path=io_log_path,
             )
 
         # Update global memory
@@ -224,6 +234,9 @@ def run_single_instance(
         print(f"程序运行异常: {e}")
         result["status"] = "error"
         result["error"] = str(e)
+
+    finally:
+        cleanup_se_logging(handler_id)
 
     return result
 
